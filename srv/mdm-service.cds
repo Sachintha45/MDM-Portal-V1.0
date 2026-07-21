@@ -1,5 +1,7 @@
 using { mdm.portal } from '../db/data-model';
 
+@path: '/odata/v4/mdmportal'
+@requires: 'authenticated-user'
 service MDMPortalService {
 
     // =========================================================================
@@ -389,6 +391,7 @@ service MDMPortalService {
 //  REPORTING SERVICE (Optional - for dashboards)
 // =============================================================================
 
+@requires: 'authenticated-user'
 service ReportingService {
     
     // Change Request Dashboard

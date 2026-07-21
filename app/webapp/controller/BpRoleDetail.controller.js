@@ -617,7 +617,7 @@ sap.ui.define([
             sap.ui.require(["sap/ui/core/Fragment"], function (Fragment) {
                 Fragment.load({
                     id        : this.getView().getId(),
-                    name      : "mdm.portal.view.fragment.AddPrereqRoleDialog",
+                    name      : "mdm.portal.view.Fragment.AddPrereqRoleDialog",
                     controller: this
                 }).then(function (oDialog) {
                     this._oPrereqRoleDialog = oDialog;

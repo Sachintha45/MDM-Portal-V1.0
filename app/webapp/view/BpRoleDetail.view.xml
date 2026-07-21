@@ -4,7 +4,7 @@
     xmlns="sap.m"
     xmlns:core="sap.ui.core"
     xmlns:l="sap.ui.layout"
-    controllerName="mdm.portal.controller.BPRoleDetail"
+    controllerName="mdm.portal.controller.BpRoleDetail"
     displayBlock="true">
 
     <Page busy="{view>/busy}" busyIndicatorDelay="0" id="detailPage" showNavButton="true" navButtonPress=".onNavBack">

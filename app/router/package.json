@@ -1,0 +1,9 @@
+{
+  "name": "mdm-portal-approuter",
+  "dependencies": {
+    "@sap/approuter": "^18.0.0"
+  },
+  "scripts": {
+    "start": "node node_modules/@sap/approuter/approuter.js"
+  }
+}

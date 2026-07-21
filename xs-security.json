@@ -1,0 +1,62 @@
+{
+  "xsappname": "mdm-portal",
+  "tenant-mode": "dedicated",
+  "description": "MDM Portal Security Configuration",
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.Viewer",
+      "description": "Read-only access to MDM Portal"
+    },
+    {
+      "name": "$XSAPPNAME.Editor",
+      "description": "Create and edit master data change requests"
+    },
+    {
+      "name": "$XSAPPNAME.Approver",
+      "description": "Approve or reject change requests"
+    },
+    {
+      "name": "$XSAPPNAME.Admin",
+      "description": "Full administrative access including configuration"
+    }
+  ],
+  "attributes": [],
+  "role-templates": [
+    {
+      "name": "MDMViewer",
+      "description": "View master data and change requests",
+      "scope-references": [
+        "$XSAPPNAME.Viewer"
+      ]
+    },
+    {
+      "name": "MDMEditor",
+      "description": "Create and manage change requests",
+      "scope-references": [
+        "$XSAPPNAME.Editor"
+      ]
+    },
+    {
+      "name": "MDMApprover",
+      "description": "Review and approve/reject change requests",
+      "scope-references": [
+        "$XSAPPNAME.Approver"
+      ]
+    },
+    {
+      "name": "MDMAdmin",
+      "description": "Full administrative access",
+      "scope-references": [
+        "$XSAPPNAME.Viewer",
+        "$XSAPPNAME.Editor",
+        "$XSAPPNAME.Approver",
+        "$XSAPPNAME.Admin"
+      ]
+    }
+  ],
+  "oauth2-configuration": {
+    "redirect-uris": [
+      "https://*.cfapps.*.hana.ondemand.com/**"
+    ]
+  }
+}

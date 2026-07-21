@@ -1,0 +1,66 @@
+---
+_schema-version: "3.1"
+ID: mdm-portal
+version: 1.0.0
+description: "MDM Portal — SAP CAP Application"
+
+parameters:
+  enable-parallel-deployments: true
+
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm ci
+        - npx cds build --production
+        # Fix start command — cds run instead of node srv/server.js
+        - node -e "const fs=require('fs');let p=JSON.parse(fs.readFileSync('gen/srv/package.json','utf8'));delete p.main;p.scripts.start='cds run';fs.writeFileSync('gen/srv/package.json',JSON.stringify(p,null,2))"
+        # Remove server.js — cds run handles bootstrapping
+        - rm -f gen/srv/srv/server.js
+        # Copy cds.json to gen/srv — CAP needs it for DB config
+        - cp cds.json gen/srv/.cdsrc.json
+        # Build SQLite DB with schema + seed data
+        - node -e "const{execSync}=require('child_process');execSync('rm -f gen/srv/db.sqlite && mv gen/srv/srv/csn.json gen/srv/srv/csn.json.bak && npx cds deploy --to sqlite:gen/srv/db.sqlite && mv gen/srv/srv/csn.json.bak gen/srv/srv/csn.json',{cwd:process.cwd(),stdio:'inherit'})"
+        # Pre-copy UI5 webapp into approuter
+        - node -e "const fs=require('fs'),p=require('path');function cp(src,dst){const st=fs.statSync(src);if(st.isDirectory()){fs.mkdirSync(dst,{recursive:true});fs.readdirSync(src).forEach(f=>cp(p.join(src,f),p.join(dst,f)))}else{fs.copyFileSync(src,dst)}};cp('app/webapp','app/router/webapp');cp('app/router/index.html','app/router/webapp/index.html')"
+
+modules:
+  # ── CAP Service Module ────────────────────────────────────────────
+  - name: mdm-portal-srv
+    type: nodejs
+    path: gen/srv
+    properties:
+      EXIT: 1
+    requires:
+      - name: mdm-portal-uaa
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: ${default-url}
+
+  # ── App Router (serves UI5 frontend) ───────────────────────────────
+  - name: mdm-portal-approuter
+    type: approuter.nodejs
+    path: app/router
+    build-parameters:
+      builder: custom
+      commands:
+        - npm install
+    requires:
+      - name: mdm-portal-uaa
+      - name: srv-api
+        group: destinations
+        properties:
+          forwardAuthToken: true
+          name: srv-api
+          url: ~{srv-url}
+
+resources:
+  # ── XSUAA (Authentication & Authorization) ─────────────────────────
+  - name: mdm-portal-uaa
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      service-name: mdm-portal-uaa

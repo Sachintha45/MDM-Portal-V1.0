@@ -51,7 +51,7 @@ sap.ui.define([
 
             Fragment.load({
                 id        : this.getView().getId(),
-                name      : "mdm.portal.view.fragment.FieldAssignmentEditDialog",
+                name      : "mdm.portal.view.Fragment.FieldAssignmentEditDialog",
                 controller: this
             }).then(function (oDialog) {
                 this._oFieldEditDialog = oDialog;

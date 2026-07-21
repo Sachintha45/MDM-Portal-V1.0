@@ -78,7 +78,7 @@ sap.ui.define([
         BS001       : "CompanyCodes"
     };
 
-    return Controller.extend("mdm.portal.controller.CreateBP", {
+    return Controller.extend("mdm.portal.controller.CreateBp", {
 
         // ── Lifecycle ────────────────────────────────────────────────
         onInit: function () {
@@ -657,7 +657,7 @@ sap.ui.define([
             if (!this._oRoleVHDialog) {
                 Fragment.load({
                     id        : oView.getId(),
-                    name      : "mdm.portal.view.Fragment.BPRoleVHDialog",
+                    name      : "mdm.portal.view.Fragment.BprolevhDialog",
                     controller: this
                 }).then(function (oDialog) {
                     this._oRoleVHDialog = oDialog;
@@ -860,7 +860,7 @@ sap.ui.define([
             if (!this._oAgVHDialog) {
                 Fragment.load({
                     id         : oView.getId(),
-                    name       : "mdm.portal.view.Fragment.AccountGroupVHDialog",
+                    name       : "mdm.portal.view.Fragment.AccountGroupvhDialog",
                     controller : this
                 }).then(function (oDialog) {
                     this._oAgVHDialog = oDialog;
@@ -1867,7 +1867,7 @@ sap.ui.define([
             if (!this._oFieldVHDialog) {
                 Fragment.load({
                     id        : oView.getId(),
-                    name      : "mdm.portal.view.Fragment.FieldVHDialog",
+                    name      : "mdm.portal.view.Fragment.FieldvhDialog",
                     controller: this
                 }).then(function (oDialog) {
                     this._oFieldVHDialog = oDialog;

@@ -4,7 +4,7 @@
     xmlns="sap.m"
     xmlns:core="sap.ui.core"
     xmlns:l="sap.ui.layout"
-    controllerName="mdm.portal.controller.CreateBP"
+    controllerName="mdm.portal.controller.CreateBp"
     displayBlock="true">
 
     <Page id="createBpPage" busy="{rt>/busy}" busyIndicatorDelay="0"

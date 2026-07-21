@@ -290,7 +290,7 @@
                     "viewLevel": 2
                 },
                 "bpRoleDetail": {
-                    "viewName": "BPRoleDetail",
+                    "viewName": "BpRoleDetail",
                     "viewLevel": 2
                 },
                 "bpCategoryDetail": {
@@ -302,7 +302,7 @@
                     "viewLevel": 2
                 },
                 "createBP": {
-                    "viewName": "CreateBP",
+                    "viewName": "CreateBp",
                     "viewLevel": 1
                 },
                 "releaseCriteria": {

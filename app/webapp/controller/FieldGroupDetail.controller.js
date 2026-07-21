@@ -583,7 +583,7 @@ sap.ui.define([
 
                 Fragment.load({
                     id        : this.getView().getId(),
-                    name      : "mdm.portal.view.Fragment.AssignFieldsToGroupDialog",
+                    name      : "mdm.portal.view.Fragment.AssignFieldstoGroupDialog",
                     controller: this
                 }).then(function (oDialog) {
                     this._oAssignFgDialog = oDialog;
