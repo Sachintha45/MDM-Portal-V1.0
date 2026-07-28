@@ -1,7 +1,5 @@
 using { mdm.portal } from '../db/data-model';
 
-@path: '/odata/v4/mdmportal'
-//@requires: 'authenticated-user'
 service MDMPortalService {
 
     // =========================================================================
@@ -290,6 +288,24 @@ service MDMPortalService {
         next_step: Integer;
     };
 
+    // Callback for SAP Build Process Automation — called from a Connector
+    // step added to the CR_Approval process's Approve/Reject branches, so
+    // an approver's decision in BPA's Inbox actually updates this app's
+    // own state and (on approval) automatically notifies the next stage's
+    // approver(s). Shares its core logic with approveReleaseStep.
+    action recordApprovalDecision(
+        cr_id: String,
+        step_number: Integer,
+        decision: String, // APPROVE | REJECT | SEND_BACK
+        comment: String,
+        actor: String
+    ) returns {
+        success: Boolean;
+        message: String;
+        nextStageTriggered: Boolean;
+        fullyApproved: Boolean;
+    };
+
     // Post a change request to SAP
     action postChangeRequest(
         cr_id: String
@@ -308,6 +324,13 @@ service MDMPortalService {
             available: Boolean;
             reason: String;
         };
+    };
+
+    // Current logged-in user's ID — used by the frontend (My Approvals inbox)
+    // to resolve "my" pending approvals via ReleaseCodeUser without hardcoding
+    // a user. Read-only, no side effects.
+    function getCurrentUser() returns {
+        user_id: String;
     };
 
     // Get release strategy for a CR
@@ -391,7 +414,6 @@ service MDMPortalService {
 //  REPORTING SERVICE (Optional - for dashboards)
 // =============================================================================
 
-//@requires: 'authenticated-user'
 service ReportingService {
     
     // Change Request Dashboard
