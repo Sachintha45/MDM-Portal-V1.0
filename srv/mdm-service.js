@@ -653,8 +653,16 @@ class MDMPortalService extends cds.ApplicationService {
                     });
 
                 if (!aConditions.length) {
-                    // No conditions defined — unconditional match (Fallback).
-                    return await this._finalizeStrategyMatch(oStrategy);
+                    // No conditions defined — unconditional match (Fallback),
+                    // but only a REAL match if it actually has steps. A
+                    // fallback strategy with zero ReleaseStrategyStep rows
+                    // is a placeholder, not a usable approval chain — fall
+                    // through and keep evaluating remaining strategies
+                    // instead of silently matching to something that can
+                    // never notify an approver.
+                    const oResult = await this._finalizeStrategyMatch(oStrategy);
+                    if (oResult) { return oResult; }
+                    continue;
                 }
 
                 // Group condition rows by characteristic (OR within a group).
@@ -689,18 +697,37 @@ class MDMPortalService extends cds.ApplicationService {
                 }
 
                 if (bStrategyMatches) {
-                    return await this._finalizeStrategyMatch(oStrategy);
+                    const oResult = await this._finalizeStrategyMatch(oStrategy);
+                    if (oResult) { return oResult; }
+                    // Matched on conditions but has zero steps configured —
+                    // same reasoning as the unconditional branch above:
+                    // don't treat it as usable, keep looking.
                 }
             }
 
-            // Nothing matched — normally shouldn't happen if an
-            // unconditional Fallback strategy exists for this master data type.
+            // Nothing matched, or every candidate that matched had zero
+            // approval steps configured — either way there is no usable
+            // strategy for this CR. The caller (submitChangeRequest) turns
+            // this into a clear 400 error instead of letting the CR move to
+            // IN_APPROVAL with no approver ever notified.
             return null;
         };
 
         this._finalizeStrategyMatch = async function (oStrategy) {
             const steps = await SELECT.from('mdm.portal.ReleaseStrategyStep')
-                .where({ strategy_strategy_id: oStrategy.strategy_id });
+                .where({
+                    strategy_strategy_id: oStrategy.strategy_id,
+                    strategy_master_data_type_master_data_type_id: oStrategy.master_data_type_master_data_type_id
+                });
+
+            if (!steps.length) {
+                console.error(
+                    `[workflow] Release strategy ${oStrategy.strategy_id} matched this CR but has ZERO steps ` +
+                    `configured in ReleaseStrategyStep — treating it as not usable. Add at least one step to ` +
+                    `this strategy in Release Strategies config, or fix the underlying data gap.`
+                );
+                return null;
+            }
 
             return {
                 strategy_id: oStrategy.strategy_id,
@@ -1339,28 +1366,47 @@ class MDMPortalService extends cds.ApplicationService {
                 // a real test CR — 0000000013 — before this fix).
                 let sMatchedStrategyId = null;
                 if (submit) {
+                    let strategyResult;
                     try {
-                        const strategyResult = await this.determineReleaseStrategy(
+                        strategyResult = await this.determineReleaseStrategy(
                             'BUSINESS PARTNER', // this action always creates BP requests — see the INSERT above
                             'BP_CREATE',
                             aFvRows.map(fv => ({ field_id: fv.field_id, value: fv.new_value }))
                         );
-
-                        if (strategyResult && strategyResult.strategy_id) {
-                            sMatchedStrategyId = strategyResult.strategy_id;
-
-                            await UPDATE('mdm.portal.CRHeader').where({ cr_id: sCrId }).set({
-                                strategy_strategy_id: sMatchedStrategyId,
-                                strategy_master_data_type_master_data_type_id: 'BUSINESS PARTNER'
-                            });
-
-                            await this.createReleaseStrategySnapshot(sCrId, sMatchedStrategyId);
-                        } else {
-                            console.error(`[SaveBPChangeRequest] No matching release strategy found for CR ${sCrId}`);
-                        }
                     } catch (eStrategy) {
-                        console.error(`[SaveBPChangeRequest] Failed to determine/snapshot release strategy for CR ${sCrId}:`, eStrategy.message);
+                        console.error(`[SaveBPChangeRequest] Failed to determine release strategy for CR ${sCrId}:`, eStrategy.message);
+                        // strategyResult stays undefined — handled by the
+                        // same "no usable strategy" branch below, so a
+                        // thrown error and a null match both block
+                        // submission the same way.
                     }
+
+                    if (!strategyResult || !strategyResult.strategy_id) {
+                        // Previously this only logged to the console and let
+                        // the save continue, returning a fake "submitted for
+                        // approval" success message — the CR ended up
+                        // IN_APPROVAL with no strategy, no CRReleaseStep
+                        // rows, and no approver ever notified (confirmed
+                        // with CR 0000000004). req.error() here rolls back
+                        // this whole request's transaction — including the
+                        // CRHeader/CRBPRole/CRFieldValue inserts already
+                        // done above in this same call — so nothing
+                        // half-created is left behind.
+                        return req.error(400,
+                            'No matching release strategy found for this request. Check that the ' +
+                            'submitted field values (e.g. Sales Org, Company Code) match a configured ' +
+                            'Release Strategy, or that a usable fallback strategy exists.'
+                        );
+                    }
+
+                    sMatchedStrategyId = strategyResult.strategy_id;
+
+                    await UPDATE('mdm.portal.CRHeader').where({ cr_id: sCrId }).set({
+                        strategy_strategy_id: sMatchedStrategyId,
+                        strategy_master_data_type_master_data_type_id: 'BUSINESS PARTNER'
+                    });
+
+                    await this.createReleaseStrategySnapshot(sCrId, sMatchedStrategyId);
                 }
 
                 // Notify SAP Build Process Automation on submit — same

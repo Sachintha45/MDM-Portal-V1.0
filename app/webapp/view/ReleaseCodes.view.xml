@@ -130,11 +130,9 @@
                                 <Link text="{release_code_id}" press=".onLinkPress" wrapping="false"/>
                                 <Text text="{description}" wrapping="false"/>
                                 <ObjectIdentifier text="{= ${master_data_type_master_data_type_id} === 'BUSINESS PARTNER' ? 'Business Partner' : (${master_data_type_master_data_type_id} || 'Any') }"/>
-                                <Text text="{path: 'release_code_id', formatter: '.formatUsersCount'}" wrapping="false"/>
-                                <Text text="{path: 'release_code_id', formatter: '.formatScopeCount'}" wrapping="false"/>
-                                <ObjectStatus
-                                    text="{= ${active} ? 'Active' : 'Inactive'}"
-                                    state="{= ${active} ? 'Success' : 'Error'}"/>
+<Text text="{parts: [{path: 'release_code_id'}, {path: 'ui>/userCounts'}], formatter: '.formatCount'}" wrapping="false"/>
+<Text text="{parts: [{path: 'release_code_id'}, {path: 'ui>/scopeCounts'}], formatter: '.formatCount'}" wrapping="false"/>
+                                <ObjectStatus text="" state="None"/>
                             </cells>
                         </ColumnListItem>
                     </items>

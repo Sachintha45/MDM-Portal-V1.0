@@ -19,6 +19,21 @@ sap.ui.define([
             oRouter.getRoute("myRequests").attachPatternMatched(this._onRouteMatched, this);
         },
 
+        // The OData v4 model doesn't hand DateTimeOffset properties to a
+        // composite-binding "type:" declaration the way it expects (that
+        // throws "Illegal ... value" here); a plain formatter over the
+        // ISO string sidesteps the mismatch entirely — same approach
+        // already used in ReleaseCodeDetail.controller.js's _fmtDate.
+        formatDateTime: function (sVal) {
+            if (!sVal) { return ""; }
+            try {
+                return new Date(sVal).toLocaleString(undefined, {
+                    year: "numeric", month: "short", day: "numeric",
+                    hour: "2-digit", minute: "2-digit"
+                });
+            } catch (e) { return sVal; }
+        },
+
         _onRouteMatched: function () {
             // Refresh the table binding each time the route is hit
             var oTable = this.byId("crTable");

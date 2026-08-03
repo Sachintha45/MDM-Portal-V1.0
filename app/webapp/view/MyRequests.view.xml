@@ -115,11 +115,7 @@
                                            ${status} === 'REJECTED'    ? 'Error'   : 'None'}"/>
                                 <Text text="{priority}" wrapping="false"/>
                                 <Text text="{requester}" wrapping="false"/>
-                                <Text text="{
-                                    path: 'createdAt',
-                                    type: 'sap.ui.model.odata.type.DateTimeOffset',
-                                    formatOptions: { style: 'short', UTC: false }
-                                }" wrapping="false"/>
+                                <Text text="{path: 'createdAt', formatter: '.formatDateTime'}" wrapping="false"/>
                                 <Text text="{posted_object_no}" wrapping="false"/>
                                 <!-- Delete/Cancel button — only for removable statuses -->
                                 <Button icon="{= ${status} === 'DRAFT' ? 'sap-icon://delete' : 'sap-icon://cancel'}"
