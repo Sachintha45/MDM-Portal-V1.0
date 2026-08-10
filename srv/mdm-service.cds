@@ -24,6 +24,12 @@ service MDMPortalService {
     entity FieldMasters as projection on portal.FieldMaster {
         *,
         value_table.value_table_id as value_table_code : String,
+        validation.validation_id   as validation_code  : String,
+        grid_columns : redirected to GridColumns
+    };
+    entity GridColumns as projection on portal.GridColumn {
+        *,
+        value_table.value_table_id as value_table_code : String,
         validation.validation_id   as validation_code  : String
     };
     entity ValueTables as projection on portal.ValueTable;
@@ -228,6 +234,12 @@ service MDMPortalService {
             role_id        : String(10);
             instance_no    : Integer;
             field_id       : String(40);
+            // Grid-type fields only (FieldMaster.grid = true): which
+            // GridColumn a value belongs to, and which row (1-based) —
+            // mirrors CRFieldValue's own column_name/counter. Left unset
+            // ('' / 0) for ordinary single-value fields.
+            column_name    : String(20);
+            counter        : Integer;
             new_value      : String(2000);
             source_level   : String(20);
             prereq_indicator : Boolean;

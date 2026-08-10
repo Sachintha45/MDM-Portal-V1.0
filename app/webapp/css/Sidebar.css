@@ -837,3 +837,11 @@ div[id$="fieldMasterPage-contentWrapper"],
 .sapMDMFlowCodeName {
     font-weight: 600 !important;
 }
+.mdmGridFieldSection {
+    border-top: 1px solid var(--sapGroup_TitleBorderColor);
+    padding-top: 0.75rem;
+}
+.mdmGridFieldRepeatLabel {
+    color: var(--sapContent_LabelColor);
+    font-size: 0.8rem;
+}

@@ -245,6 +245,41 @@ sap.ui.define([
             return oCtx ? oCtx.getProperty("role_id") : null;
         },
 
+        // ── Group hierarchy helper (shared by Field Assignment & Prerequisite Fields) ──
+        // A field's own main_group_group_id is set once, at the time it's
+        // assigned to a sub-group, from whatever that sub-group's parent was
+        // *then*. If the sub-group is later re-parented under a different
+        // main group (or moved out from under one entirely), that stored FK
+        // doesn't follow it — same reasoning as FieldGroups.controller.js's
+        // _loadFieldCounts rollup fix. So rather than trust it, walk the
+        // *current* FieldGroup tree from the field's sub_group up to find
+        // its real root whenever a sub_group is present.
+        _getGroupParentMap: function () {
+            if (this._pGroupParents) { return this._pGroupParents; }
+            var oModel = this.getOwnerComponent().getModel();
+            this._pGroupParents = oModel.bindList("/FieldGroups", null, null, null, {
+                $select: "group_id,parent_group_id_group_id"
+            }).requestContexts(0, Infinity).then(function (aCtx) {
+                var oParentOf = {};
+                aCtx.forEach(function (c) {
+                    oParentOf[c.getProperty("group_id")] = c.getProperty("parent_group_id_group_id") || null;
+                });
+                return oParentOf;
+            }).catch(function () {
+                return {}; // fall back to whatever's stored on the field if this fails
+            });
+            return this._pGroupParents;
+        },
+        _findRootGroup: function (sGroupId, oParentOf) {
+            var sCurrent = sGroupId;
+            var oSeen = {}; // guards against a cyclic parent reference
+            while (oParentOf[sCurrent] && !oSeen[sCurrent]) {
+                oSeen[sCurrent] = true;
+                sCurrent = oParentOf[sCurrent];
+            }
+            return sCurrent;
+        },
+
         // ── Field Assignment tab ─────────────────────────────────────
         _loadAssignedFields: function () {
             var sRole = this._roleId();
@@ -261,7 +296,9 @@ sap.ui.define([
                     return oSet;
                 });
 
-            pPrereq.then(function (oPrereqSet) {
+            Promise.all([pPrereq, this._getGroupParentMap()]).then(function (aResults) {
+                var oPrereqSet = aResults[0];
+                var oParentOf  = aResults[1];
                 return oModel.bindList("/BPRoleFields", null,
                     [
                         new Sorter("field/main_group_group_id"),
@@ -284,8 +321,14 @@ sap.ui.define([
                     if (!oView || oView.bIsDestroyed) { return; }
 
                     var aItems = aCtx.map(function (c) {
-                        var sMain = c.getProperty("field/main_group_group_id") || "";
-                        var sSub  = c.getProperty("field/sub_group_group_id")  || "";
+                        var sSub = c.getProperty("field/sub_group_group_id") || "";
+                        // Derived from the live group tree when a sub-group is
+                        // set (see _findRootGroup above); only falls back to
+                        // the field's own stored FK when there's no sub-group
+                        // to derive it from.
+                        var sMain = sSub
+                            ? this._findRootGroup(sSub, oParentOf)
+                            : (c.getProperty("field/main_group_group_id") || "");
                         var sFid  = c.getProperty("field_field_id");
                         return {
                             field_id       : sFid,
@@ -300,7 +343,7 @@ sap.ui.define([
                             sequence       : c.getProperty("sequence"),
                             is_prerequisite: !!oPrereqSet[sFid]
                         };
-                    });
+                    }.bind(this));
 
                     // Sort client-side: main group → sub group → sequence
                     aItems.sort(function (a, b) {
@@ -370,25 +413,29 @@ sap.ui.define([
             var sRole = this._roleId();
             if (!sRole) { return; }
             var oModel = this.getOwnerComponent().getModel();
-            oModel.bindList("/BPRolePrereqFields", null, [new Sorter("sequence")], [
-                new Filter("role_role_id", FilterOperator.EQ, sRole)
-            ], {
-                $expand: "field($select=field_id,description,data_type,main_group_group_id,sub_group_group_id)",
-                $select: "role_role_id,field_field_id,sequence"
-            }).requestContexts(0, Infinity).then(function (aCtx) {
-                var aItems = aCtx.map(function (c) {
-                    var sMain = c.getProperty("field/main_group_group_id") || "";
-                    var sSub  = c.getProperty("field/sub_group_group_id") || "";
-                    return {
-                        field_id   : c.getProperty("field_field_id"),
-                        description: c.getProperty("field/description") || "",
-                        data_type  : c.getProperty("field/data_type") || "",
-                        group_path : (sMain + (sSub && sSub !== sMain ? " \u25b8 " + sSub : "")) || "\u2014",
-                        sequence   : c.getProperty("sequence")
-                    };
-                });
-                this.getView().getModel("prereq").setProperty("/items", aItems);
-                this._oViewModel.setProperty("/prereqCount", String(aItems.length));
+            this._getGroupParentMap().then(function (oParentOf) {
+                return oModel.bindList("/BPRolePrereqFields", null, [new Sorter("sequence")], [
+                    new Filter("role_role_id", FilterOperator.EQ, sRole)
+                ], {
+                    $expand: "field($select=field_id,description,data_type,main_group_group_id,sub_group_group_id)",
+                    $select: "role_role_id,field_field_id,sequence"
+                }).requestContexts(0, Infinity).then(function (aCtx) {
+                    var aItems = aCtx.map(function (c) {
+                        var sSub  = c.getProperty("field/sub_group_group_id") || "";
+                        var sMain = sSub
+                            ? this._findRootGroup(sSub, oParentOf)
+                            : (c.getProperty("field/main_group_group_id") || "");
+                        return {
+                            field_id   : c.getProperty("field_field_id"),
+                            description: c.getProperty("field/description") || "",
+                            data_type  : c.getProperty("field/data_type") || "",
+                            group_path : (sMain + (sSub && sSub !== sMain ? " \u25b8 " + sSub : "")) || "\u2014",
+                            sequence   : c.getProperty("sequence")
+                        };
+                    }.bind(this));
+                    this.getView().getModel("prereq").setProperty("/items", aItems);
+                    this._oViewModel.setProperty("/prereqCount", String(aItems.length));
+                }.bind(this));
             }.bind(this)).catch(function (e) {
                 MessageBox.error("Could not load prerequisite fields: " + e.message);
             });

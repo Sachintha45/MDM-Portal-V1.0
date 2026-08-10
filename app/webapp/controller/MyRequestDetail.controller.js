@@ -96,7 +96,7 @@ sap.ui.define([
 
             var pFvs = fetch(
                 sBase + "/CRFieldValues?$filter=cr_cr_id eq " + sCrKey +
-                "&$select=cr_cr_id,role_id,instance_no,field_field_id,new_value,prereq_indicator&$top=5000",
+                "&$select=cr_cr_id,role_id,instance_no,field_field_id,column_name,counter,new_value,prereq_indicator&$top=5000",
                 { headers: { Accept: "application/json" } })
                 .then(function (r) { return r.json(); })
                 .then(function (d) { return (d && d.value) || []; })
@@ -171,15 +171,32 @@ sap.ui.define([
 
                 // Build a lookup map of saved values:
                 // { "roleId|fieldId" → { new_value, prereq_indicator } }
+                // Grid-type fields (see FieldMaster.grid) save one CRFieldValue
+                // row PER CELL — column_name + counter identify which column
+                // and which row. Those go into a separate map, grouped back
+                // into rows, instead of collapsing into the single-value map
+                // above (which would just keep overwriting itself down to
+                // the last cell read, same flattening bug fixed in
+                // CreateBp.controller.js's read path — mirrored here since
+                // this is the same "one CRFieldValue row → one field" shape).
                 var mSavedVals = {};
+                var mGridRows  = {};   // "roleId|fieldId" -> { counter: {column_name: value} }
                 aFvs.forEach(function (fv) {
                     var sKey = (fv.role_id || "") + "|" + (fv.field_field_id || fv.field_id || "");
+                    if (fv.column_name) {
+                        if (!mGridRows[sKey]) { mGridRows[sKey] = {}; }
+                        var iCounter = fv.counter || 1;
+                        if (!mGridRows[sKey][iCounter]) { mGridRows[sKey][iCounter] = {}; }
+                        mGridRows[sKey][iCounter][fv.column_name] = fv.new_value || "";
+                        return;
+                    }
                     mSavedVals[sKey] = {
                         new_value       : fv.new_value        || "",
                         prereq_indicator: !!fv.prereq_indicator
                     };
                 });
                 that._mSavedVals = mSavedVals;
+                that._mGridRows  = mGridRows;
 
                 oVm.setProperty("/roleCount", that._aRoles.length);
 
@@ -234,6 +251,15 @@ sap.ui.define([
                             var sKey     = sRoleId + "|" + sFieldId;
                             var oSaved   = that._mSavedVals[sKey] || {};
                             var bPrereq  = !!mPrereqSet[sKey];
+                            // Grid rows, if any, in row order (counter 1, 2, 3...).
+                            // Meaningless/empty for a non-grid field.
+                            var oRowsByCounter = that._mGridRows[sKey] || null;
+                            var aGridRows = oRowsByCounter
+                                ? Object.keys(oRowsByCounter)
+                                    .map(Number)
+                                    .sort(function (a, b) { return a - b; })
+                                    .map(function (c) { return oRowsByCounter[c]; })
+                                : [];
                             return {
                                 role_id         : sRoleId,
                                 field_id        : sFieldId,
@@ -241,7 +267,8 @@ sap.ui.define([
                                 instance_no     : 1,
                                 prereq_indicator: bPrereq,
                                 field_status    : rf.field_status  || "OPTIONAL",
-                                sequence        : rf.sequence      || 99
+                                sequence        : rf.sequence      || 99,
+                                gridRows        : aGridRows
                             };
                         });
 
@@ -275,26 +302,48 @@ sap.ui.define([
             // Note: do NOT restrict $select on association FK scalars — CAP OData V4
             // may omit them when $selected on the flat entity projection. Instead
             // fetch the minimal set that guarantees the FK scalars are included.
-            var pFields = fetch(sBase + "/FieldMasters?$select=field_id,description,main_group_group_id,sub_group_group_id&$top=2000",
+            var pFields = fetch(sBase + "/FieldMasters?$select=field_id,description,main_group_group_id,sub_group_group_id,grid&$top=2000",
                 { headers: { Accept: "application/json" } })
                 .then(function (r) { return r.json(); })
                 .then(function (d) {
                     ((d && d.value) || []).forEach(function (f) {
                         that._mFieldMeta[f.field_id] = {
                             description : f.description            || "",
-                            // Default to "GD" (General Data) when null —
-                            // matches CreateBP.controller.js line 917 behaviour
-                            mainGroup   : f.main_group_group_id    || "GD",
-                            subGroup    : f.sub_group_group_id     || ""
+                            // Raw values as stored on the field — mainGroup
+                            // gets replaced with a properly tree-derived value
+                            // once FieldGroups (pGroups) has loaded, see the
+                            // Promise.all callback below. A field's own
+                            // main_group_group_id is set once, when it's first
+                            // assigned to a sub-group, and doesn't follow that
+                            // sub-group if it's later re-parented under a
+                            // different main group — same reasoning as the
+                            // equivalent fix in CreateBp.controller.js.
+                            mainGroup   : f.main_group_group_id    || "",
+                            subGroup    : f.sub_group_group_id     || "",
+                            grid        : f.grid === true
                         };
                     });
-                    // Debug: log a few sample fields to verify group IDs are arriving
-                    ["NAME1","NAME2","PARTNER","COUNTRY","CITY"].forEach(function (id) {
-                        if (that._mFieldMeta[id]) {
-                            console.log("[Detail] " + id + " mainGroup:", that._mFieldMeta[id].mainGroup);
-                        }
-                    });
                 }).catch(function () {});
+
+            // Grid column definitions (only meaningful for fields with grid=true
+            // above) — grouped by field_id so _buildFieldRow can render a
+            // read-only table with the right columns for a grid field.
+            var pGridColumns = fetch(sBase + "/GridColumns?$select=field_field_id,column_name,description,data_type,display_type&$top=5000",
+                { headers: { Accept: "application/json" } })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    that._mGridColumns = {};
+                    ((d && d.value) || []).forEach(function (gc) {
+                        var sFid = gc.field_field_id;
+                        if (!that._mGridColumns[sFid]) { that._mGridColumns[sFid] = []; }
+                        that._mGridColumns[sFid].push({
+                            column_name : gc.column_name,
+                            description : gc.description || gc.column_name,
+                            data_type   : gc.data_type,
+                            display_type: gc.display_type
+                        });
+                    });
+                }).catch(function () { that._mGridColumns = {}; });
 
             // FieldGroup metadata — for tab/panel labels
             var pGroups = fetch(sBase + "/FieldGroups?$select=group_id,description,parent_group_id_group_id,sequence,icon&$top=500",
@@ -312,7 +361,29 @@ sap.ui.define([
                     });
                 }).catch(function () { that._mGroupMeta = {}; });
 
-            Promise.all([pRoles, pFields, pGroups]).then(function () {
+            Promise.all([pRoles, pFields, pGroups, pGridColumns]).then(function () {
+                // Now that _mGroupMeta (FieldGroups, with parent_group_id) is
+                // loaded, resolve each field's real main group by walking up
+                // from its sub_group to the current root — not by trusting
+                // the field's own possibly-stale main_group_group_id (see
+                // the note in pFields above). Falls back to the field's own
+                // stored value, or "GD" as a last resort, only when there's
+                // no sub-group to derive it from.
+                var fnFindRoot = function (sGroupId) {
+                    var sCurrent = sGroupId;
+                    var oSeen = {};
+                    while (that._mGroupMeta[sCurrent] && that._mGroupMeta[sCurrent].parentId && !oSeen[sCurrent]) {
+                        oSeen[sCurrent] = true;
+                        sCurrent = that._mGroupMeta[sCurrent].parentId;
+                    }
+                    return sCurrent;
+                };
+                Object.keys(that._mFieldMeta).forEach(function (sFieldId) {
+                    var oMeta = that._mFieldMeta[sFieldId];
+                    oMeta.mainGroup = oMeta.subGroup
+                        ? fnFindRoot(oMeta.subGroup)
+                        : (oMeta.mainGroup || "GD");
+                });
                 that._renderAll();
             });
         },
@@ -607,9 +678,18 @@ sap.ui.define([
             });
         },
 
-        // Build one read-only field row: Label (Description*) + disabled Input (value)
+        // Build one read-only field row: Label (Description*) + disabled Input (value).
+        // Grid-type fields (FieldMaster.grid = true) instead render a
+        // read-only table — one row per fv.gridRows entry (reconstructed
+        // from CRFieldValue's column_name/counter, see _mGridRows above),
+        // one column per GridColumn definition in _mGridColumns.
         _buildFieldRow: function (fv) {
-            var oFm       = this._mFieldMeta[fv.field_id] || {};
+            var oFm = this._mFieldMeta[fv.field_id] || {};
+
+            if (oFm.grid) {
+                return this._buildGridFieldRow(fv, oFm);
+            }
+
             var bRequired = (fv.field_status === "REQUIRED");
             // Show the human-readable description (e.g. "Sales Division")
             // rather than the raw technical field_id (e.g. "SPART") — fall
@@ -636,6 +716,38 @@ sap.ui.define([
                         valueState  : (bRequired && !fv.new_value) ? "Warning" : "None"
                     })
                 ]
+            });
+        },
+
+        _buildGridFieldRow: function (fv, oFm) {
+            var aCols = this._mGridColumns[fv.field_id] || [];
+            var aRows = fv.gridRows || [];
+
+            var oTable = new Table({
+                noDataText: "(no rows saved)",
+                growing   : false,
+                fixedLayout: false,
+                columns: aCols.map(function (gc) {
+                    return new Column({ header: new Label({ text: gc.description, design: "Bold" }) });
+                }),
+                items: aRows.map(function (oRow) {
+                    return new ColumnListItem({
+                        cells: aCols.map(function (gc) {
+                            return new Text({ text: oRow[gc.column_name] || "\u2014" });
+                        })
+                    });
+                })
+            });
+
+            var oLabel = new Label({
+                text : (oFm.description || fv.field_id) + ":",
+                design: "Bold",
+                required: fv.field_status === "REQUIRED"
+            });
+
+            return new VBox({
+                class: "sapUiTinyMarginBottom",
+                items: [oLabel, oTable]
             });
         },
 

@@ -121,9 +121,29 @@ sap.ui.define([
         },
 
         _loadFieldCounts: function (aCtx, oFieldCounts) {
-            // For each group, count how many FieldMasters reference it as main_group or sub_group
-            var oModel    = this.getOwnerComponent().getModel();
-            var oUiModel  = this.getView().getModel("ui");
+            // For each group, count how many fields ultimately live under it —
+            // including through any chain of sub-groups, at any depth, not
+            // just fields whose own main_group_group_id happens to point
+            // straight at it. That FK is set once, at the time a field is
+            // assigned; if a sub-group is *later* re-parented under a new
+            // main group (as when someone reorganizes the tree), the field's
+            // stored main_group_group_id doesn't retroactively follow it —
+            // but the group hierarchy itself (parent_group_id_group_id,
+            // read fresh below) does, so rolling counts up through that
+            // instead is what keeps a main group's total correct after its
+            // sub-groups get moved around.
+            var oModel   = this.getOwnerComponent().getModel();
+            var oUiModel = this.getView().getModel("ui");
+
+            // parent -> [children] from the groups already loaded for this list.
+            var oChildrenOf = {};
+            aCtx.forEach(function (c) {
+                var sParent = c.getProperty("parent_group_id_group_id");
+                if (!sParent) { return; }
+                if (!oChildrenOf[sParent]) { oChildrenOf[sParent] = []; }
+                oChildrenOf[sParent].push(c.getProperty("group_id"));
+            });
+
             var aGroupIds = aCtx.map(function (c) { return c.getProperty("group_id"); });
             if (!aGroupIds.length) { return; }
 
@@ -131,11 +151,30 @@ sap.ui.define([
             oModel.bindList("/FieldMasters", null, null, null, {
                 $select: "field_id,main_group_group_id,sub_group_group_id"
             }).requestContexts(0, Infinity).then(function (aFields) {
+                // Each field is counted once, at its most specific group —
+                // sub_group when set, else main_group directly.
+                var oDirectCounts = {};
                 aFields.forEach(function (oCtx) {
-                    var sMain = oCtx.getProperty("main_group_group_id");
-                    var sSub  = oCtx.getProperty("sub_group_group_id");
-                    if (sMain) { oFieldCounts[sMain] = (oFieldCounts[sMain] || 0) + 1; }
-                    if (sSub)  { oFieldCounts[sSub]  = (oFieldCounts[sSub]  || 0) + 1; }
+                    var sLeaf = oCtx.getProperty("sub_group_group_id") || oCtx.getProperty("main_group_group_id");
+                    if (!sLeaf) { return; }
+                    oDirectCounts[sLeaf] = (oDirectCounts[sLeaf] || 0) + 1;
+                });
+
+                // Sum of a group's own direct fields plus every descendant's,
+                // walking down the *current* tree (not the fields' own FKs).
+                var oMemo = {};
+                var fnTotal = function (sGroupId) {
+                    if (oMemo[sGroupId] !== undefined) { return oMemo[sGroupId]; }
+                    var iTotal = oDirectCounts[sGroupId] || 0;
+                    (oChildrenOf[sGroupId] || []).forEach(function (sChildId) {
+                        iTotal += fnTotal(sChildId);
+                    });
+                    oMemo[sGroupId] = iTotal;
+                    return iTotal;
+                };
+
+                aGroupIds.forEach(function (sGroupId) {
+                    oFieldCounts[sGroupId] = fnTotal(sGroupId);
                 });
                 oUiModel.setProperty("/fieldCounts", oFieldCounts);
             }).catch(function () {

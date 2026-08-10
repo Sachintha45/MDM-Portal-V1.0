@@ -137,6 +137,35 @@ entity FieldMaster : managed {
         source_table    : String(40);
         source_field    : String(40);
         active          : Boolean      not null default true;
+        grid            : Boolean      not null default false;
+        // Only meaningful when grid = true. Explicit admin opt-in for
+        // whether Create BP should build a sibling "<Main Group> Overview"
+        // tab showing this field's first record as a vertical form,
+        // alongside the normal grid table. Deliberately a separate flag
+        // from grid itself — not every grid field needs (or should get)
+        // this second view, so it's asked for specifically rather than
+        // inferred from the field's shape.
+        grid_overview   : Boolean      not null default false;
+        grid_columns    : Composition of many GridColumn on grid_columns.field = $self;
+}
+
+// Column definitions for a field whose display_type is maintained as a grid
+// (FieldMaster.grid = true). Each row is one column of that grid, carrying
+// its own data_type/display_type/validation the same way FIELD_MASTER does
+// for a normal single-value field.
+entity GridColumn : managed {
+    key field           : Association to FieldMaster not null;
+    key column_name     : String(40);
+        data_type       : DataType     not null;
+        length          : Integer;
+        decimals        : Integer;
+        description     : String(100)  not null;
+        display_type    : DisplayType  not null;
+        value_table     : Association to ValueTable;
+        validation      : Association to ValidationRule;
+        source_table    : String(40);
+        source_field    : String(40);
+        active          : Boolean      not null default true;
 }
 
 entity BPCategory : managed {
@@ -393,6 +422,13 @@ entity CRFieldValue : managed {
     key role_id         : String(10);
     key instance_no     : Integer not null default 1;
     key field           : Association to FieldMaster not null;
+    // Grid-type fields only (FieldMaster.grid = true): column_name identifies
+    // which GridColumn this value belongs to, and counter distinguishes rows
+    // when the grid holds more than one row for the same field. Both are ''/0
+    // for ordinary single-value fields, mirroring the role_id/instance_no
+    // pattern already used above for non-role-level rows.
+    key column_name     : String(20) default '';
+    key counter          : Integer   not null default 0;
         old_value       : String(2000);
         new_value       : String(2000);
         source_level    : String(20) not null @assert.range enum { CATEGORY; ROLE; ACCOUNT_GROUP; };

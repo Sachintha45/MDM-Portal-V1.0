@@ -7,14 +7,23 @@ sap.ui.define([
     "sap/ui/model/Sorter",
     "sap/m/MessageToast",
     "sap/m/MessageBox",
+    "sap/m/GroupHeaderListItem",
     "sap/ui/core/format/DateFormat"
 ], function (
     Controller, Fragment, JSONModel, Filter, FilterOperator, Sorter,
-    MessageToast, MessageBox, DateFormat
+    MessageToast, MessageBox, GroupHeaderListItem, DateFormat
 ) {
     "use strict";
 
     var oDateFmt = DateFormat.getDateTimeInstance({ style: "medium" });
+
+    // Sentinel group key for fields assigned straight to the main group
+    // (no sub-group) when grouping the Assigned Fields table — sorts after
+    // real sub-group IDs so that bucket lands last, as a catch-all rather
+    // than mixed in among the named sub-groups. Shared between
+    // _loadAssignedFields (which builds the groups) and getFieldGroupHeader
+    // (which renders them).
+    var NO_SUBGROUP_KEY = "\uFFFF";
 
     return Controller.extend("mdm.portal.controller.FieldGroupDetail", {
 
@@ -478,20 +487,44 @@ sap.ui.define([
             var bIsMain  = !oCtx.getProperty("parent_group_id_group_id");
             var oModel   = this.getOwnerComponent().getModel();
 
-            // For a MAIN group, also include fields belonging to its sub-groups
-            // (in this data model fields are mostly assigned at sub-group level).
-            // Step 1: collect the set of group IDs to match against.
+            // Group labels keyed by group_id; NO_SUBGROUP_KEY is the catch-all
+            // bucket for fields assigned straight to the main group.
+            this._oGroupLabels = {};
+            this._oGroupLabels[NO_SUBGROUP_KEY] = "No Sub-Group";
+
+            // For a MAIN group, also include fields belonging to any of its
+            // sub-groups AT ANY DEPTH (in this data model fields are mostly
+            // assigned at sub-group level, and sub-groups can themselves
+            // nest — e.g. ADDRESS -> ADDR_INDEP_COMM -> AIC_COMM). Step 1:
+            // walk the tree level by level, collecting every descendant's
+            // ID and description for the group headers below.
             var pGroupIds;
             if (bIsMain) {
-                pGroupIds = oModel.bindList("/FieldGroups", null, null, [
-                    new Filter("parent_group_id_group_id", FilterOperator.EQ, sGroupId)
-                ], {
-                    $select: "group_id"
-                }).requestContexts(0, Infinity).then(function (aSubs) {
-                    var aIds = aSubs.map(function (c) { return c.getProperty("group_id"); });
-                    aIds.push(sGroupId); // include the main group itself
-                    return aIds;
-                });
+                this._oGroupLabels[sGroupId] = oCtx.getProperty("description") || sGroupId;
+
+                var aAllIds = [sGroupId];
+                var fnFetchLevel = function (aParentIds) {
+                    var aParentFilters = aParentIds.map(function (sId) {
+                        return new Filter("parent_group_id_group_id", FilterOperator.EQ, sId);
+                    });
+                    return oModel.bindList("/FieldGroups", null, null, [
+                        new Filter({ filters: aParentFilters, and: false })
+                    ], {
+                        $select: "group_id,description"
+                    }).requestContexts(0, Infinity).then(function (aCtx) {
+                        if (!aCtx.length) { return; }
+                        var aChildIds = aCtx.map(function (c) {
+                            var sId = c.getProperty("group_id");
+                            this._oGroupLabels[sId] = c.getProperty("description") || sId;
+                            aAllIds.push(sId);
+                            return sId;
+                        }.bind(this));
+                        // Next level down, in case a sub-group has its own sub-groups.
+                        return fnFetchLevel(aChildIds);
+                    }.bind(this));
+                }.bind(this);
+
+                pGroupIds = fnFetchLevel([sGroupId]).then(function () { return aAllIds; });
             } else {
                 pGroupIds = Promise.resolve([sGroupId]);
             }
@@ -513,10 +546,17 @@ sap.ui.define([
                 // De-duplicate (a field could match on both main and sub group)
                 var oSeen  = {};
                 var aItems = [];
+                var oGroupCounts = {};
                 aCtx.forEach(function (c) {
                     var sFid = c.getProperty("field_id");
                     if (oSeen[sFid]) { return; }
                     oSeen[sFid] = true;
+                    // Group by sub-group when the field has one; fields assigned
+                    // directly to the main group (no sub-group) fall into the
+                    // NO_SUBGROUP_KEY catch-all bucket.
+                    var sSubGroup = c.getProperty("sub_group_group_id");
+                    var sGroupKey = sSubGroup || NO_SUBGROUP_KEY;
+                    oGroupCounts[sGroupKey] = (oGroupCounts[sGroupKey] || 0) + 1;
                     aItems.push({
                         field_id            : sFid,
                         description         : c.getProperty("description"),
@@ -524,14 +564,39 @@ sap.ui.define([
                         display_type        : c.getProperty("display_type"),
                         active              : c.getProperty("active"),
                         main_group_group_id : c.getProperty("main_group_group_id"),
-                        sub_group_group_id  : c.getProperty("sub_group_group_id")
+                        sub_group_group_id  : c.getProperty("sub_group_group_id"),
+                        group_key           : sGroupKey
                     });
                 });
+                this._oGroupCounts = oGroupCounts;
                 this.getView().getModel("assignedFields").setProperty("/items", aItems);
                 this._oViewModel.setProperty("/assignedFieldCount", String(aItems.length));
             }.bind(this)).catch(function (e) {
                 MessageBox.error("Could not load fields: " + e.message);
             });
+        },
+
+        // Renders the section header row when the Assigned Fields table is
+        // grouped by sub-group (see the 'sorter' on fieldsTable's items
+        // binding, and _loadAssignedFields above which builds group_key /
+        // _oGroupLabels / _oGroupCounts for this).
+        getFieldGroupHeader: function (oGroup) {
+            var sKey   = oGroup.key;
+            var iCount = (this._oGroupCounts && this._oGroupCounts[sKey]) || 0;
+            var sCountText = iCount + (iCount === 1 ? " field" : " fields");
+
+            var sTitle;
+            if (sKey === NO_SUBGROUP_KEY) {
+                sTitle = "No Sub-Group — " + sCountText;
+            } else {
+                var sLabel = (this._oGroupLabels && this._oGroupLabels[sKey]) || sKey;
+                // Includes the raw ID alongside the description — two
+                // different sub-groups (at different nesting depths, or
+                // just coincidentally) can share the same description, so
+                // the ID is what actually disambiguates them.
+                sTitle = sLabel + " (" + sKey + ") — " + sCountText;
+            }
+            return new GroupHeaderListItem({ title: sTitle, upperCase: false });
         },
 
         // ── Assign Fields to Group ───────────────────────────────────

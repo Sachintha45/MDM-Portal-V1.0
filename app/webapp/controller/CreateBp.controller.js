@@ -7,6 +7,7 @@ sap.ui.define([
     "sap/m/MessageToast",
     "sap/m/MessageBox",
     "sap/m/IconTabFilter",
+    "sap/m/IconTabBar",
     "sap/m/Input",
     "sap/m/ComboBox",
     "sap/m/CheckBox",
@@ -26,12 +27,13 @@ sap.ui.define([
     "sap/ui/core/Item",
     "sap/ui/core/Icon",
     "sap/ui/layout/form/SimpleForm",
-    "sap/ui/core/Fragment"
+    "sap/ui/core/Fragment",
+    "sap/m/Dialog"
 ], function (
     Controller, JSONModel, Filter, FilterOperator, Sorter,
-    MessageToast, MessageBox, IconTabFilter, Input, ComboBox, CheckBox, DatePicker,
+    MessageToast, MessageBox, IconTabFilter, IconTabBar, Input, ComboBox, CheckBox, DatePicker,
     Label, Panel, VBox, HBox, Text, Table, Column, ColumnListItem, Button, SegmentedButton, SegmentedButtonItem,
-    FileUploader, Item, CoreIcon, SimpleForm, Fragment
+    FileUploader, Item, CoreIcon, SimpleForm, Fragment, Dialog
 ) {
     "use strict";
 
@@ -109,6 +111,19 @@ sap.ui.define([
             // prereq) role, cached so switching the active role re-filters in
             // memory instead of re-querying the service.
             this._aAllAssignments = [];
+
+            // "<Main Group> Overview" tabs (see _buildTabs/_renderTabsForActiveRole)
+            // are only rebuilt when actually selected, not on every keystroke —
+            // this map (populated fresh on each render pass) holds one refresh
+            // function per such tab's key, and this single listener (attached
+            // once here, not re-attached on every render) is what invokes it.
+            this._mOverviewRefreshers = {};
+            this.byId("cbpTabs").attachSelect(function (oEv) {
+                var sKey = oEv.getParameter("key");
+                if (this._mOverviewRefreshers[sKey]) {
+                    this._mOverviewRefreshers[sKey]();
+                }
+            }.bind(this));
 
             // _loadLookups() is called in _onRouteMatched on every visit,
             // so newly created roles and account groups are always picked up.
@@ -198,11 +213,44 @@ sap.ui.define([
                 // Namespaced by role: form>/values/{role_id}/{field_id}
                 // — mirrors the live-entry structure so the same field shared
                 // by multiple roles keeps each role's saved value distinct.
-                var mValues = {};
+                //
+                // Grid-type fields (FieldMaster.grid = true) save one
+                // CRFieldValue row PER CELL, carrying column_name + counter.
+                // Detected purely from column_name being present on the row
+                // itself — not from already knowing which fields are grid
+                // fields, since _aAllAssignments isn't populated yet at this
+                // point. Without this, every cell for the same field_id
+                // overwrote the last, leaving a stray STRING (whatever the
+                // last cell happened to be) where the grid table's items
+                // binding expects an ARRAY of rows — which is why editing a
+                // saved grid field showed one garbage empty row per
+                // character of that string instead of the real data.
+                var mValues   = {};
+                var mGridRows = {};   // "role|field_id" -> { counter: {column_name: value} }
                 (oData.field_values || []).forEach(function (fv) {
                     var sRole = fv.role_id || "";
                     if (!mValues[sRole]) { mValues[sRole] = {}; }
+                    if (fv.column_name) {
+                        var sKey = sRole + "|" + fv.field_field_id;
+                        if (!mGridRows[sKey]) { mGridRows[sKey] = {}; }
+                        var iCounter = fv.counter || 1;
+                        if (!mGridRows[sKey][iCounter]) { mGridRows[sKey][iCounter] = {}; }
+                        mGridRows[sKey][iCounter][fv.column_name] = fv.new_value || "";
+                        return;
+                    }
                     mValues[sRole][fv.field_field_id] = fv.new_value || "";
+                });
+                Object.keys(mGridRows).forEach(function (sKey) {
+                    var iSep     = sKey.indexOf("|");
+                    var sRole    = sKey.slice(0, iSep);
+                    var sFieldId = sKey.slice(iSep + 1);
+                    var oRowsByCounter = mGridRows[sKey];
+                    var aRows = Object.keys(oRowsByCounter)
+                        .map(Number)
+                        .sort(function (a, b) { return a - b; })
+                        .map(function (c) { return oRowsByCounter[c]; });
+                    if (!mValues[sRole]) { mValues[sRole] = {}; }
+                    mValues[sRole][sFieldId] = aRows;
                 });
                 this.getView().getModel("form").setProperty("/values", mValues);
 
@@ -213,11 +261,28 @@ sap.ui.define([
                         this._mRoleInstances[r.role_role_id] = [];
                     }
                     // Build instance field values from the stored field_values
-                    var mInstFv = {};
+                    // — same grid-row reconstruction as step 3 above, scoped
+                    // to just this instance's rows.
+                    var mInstFv       = {};
+                    var mInstGridRows = {};   // field_id -> { counter: {column_name: value} }
                     (oData.field_values || []).filter(function (fv) {
                         return fv.role_id === r.role_role_id && fv.instance_no === r.instance_no;
                     }).forEach(function (fv) {
+                        if (fv.column_name) {
+                            if (!mInstGridRows[fv.field_field_id]) { mInstGridRows[fv.field_field_id] = {}; }
+                            var iCounter = fv.counter || 1;
+                            if (!mInstGridRows[fv.field_field_id][iCounter]) { mInstGridRows[fv.field_field_id][iCounter] = {}; }
+                            mInstGridRows[fv.field_field_id][iCounter][fv.column_name] = fv.new_value || "";
+                            return;
+                        }
                         mInstFv[fv.field_field_id] = fv.new_value || "";
+                    });
+                    Object.keys(mInstGridRows).forEach(function (sFieldId) {
+                        var oRowsByCounter = mInstGridRows[sFieldId];
+                        mInstFv[sFieldId] = Object.keys(oRowsByCounter)
+                            .map(Number)
+                            .sort(function (a, b) { return a - b; })
+                            .map(function (c) { return oRowsByCounter[c]; });
                     });
                     this._mRoleInstances[r.role_role_id].push({
                         instance_no  : r.instance_no,
@@ -940,6 +1005,41 @@ sap.ui.define([
             this._recomputeCanSave();
         },
 
+        // ── Group hierarchy helper ───────────────────────────────────
+        // A field's own main_group_group_id is set once, at the time it's
+        // assigned to a sub-group, from whatever that sub-group's parent
+        // was *then*. If the sub-group is later re-parented under a
+        // different main group, that stored FK doesn't follow it — same
+        // reasoning as BpRoleDetail.controller.js / FieldGroups.controller.js's
+        // equivalent fixes. So rather than trust it, walk the *current*
+        // FieldGroup tree from the field's sub_group up to find its real
+        // root whenever a sub_group is present.
+        _getGroupParentMap: function () {
+            if (this._pGroupParents) { return this._pGroupParents; }
+            var oModel = this.getOwnerComponent().getModel();
+            this._pGroupParents = oModel.bindList("/FieldGroups", null, null, null, {
+                $select: "group_id,parent_group_id_group_id"
+            }).requestContexts(0, Infinity).then(function (aCtx) {
+                var oParentOf = {};
+                aCtx.forEach(function (c) {
+                    oParentOf[c.getProperty("group_id")] = c.getProperty("parent_group_id_group_id") || null;
+                });
+                return oParentOf;
+            }).catch(function () {
+                return {}; // fall back to whatever's stored on the field if this fails
+            });
+            return this._pGroupParents;
+        },
+        _findRootGroup: function (sGroupId, oParentOf) {
+            var sCurrent = sGroupId;
+            var oSeen = {}; // guards against a cyclic parent reference
+            while (oParentOf[sCurrent] && !oSeen[sCurrent]) {
+                oSeen[sCurrent] = true;
+                sCurrent = oParentOf[sCurrent];
+            }
+            return sCurrent;
+        },
+
         // ── Dynamic tab generation from the selected roles' fields ───
         // aResolvedRoles: picked roles + their auto-pulled prereq roles.
         //   All of these get their fields fetched and appear in the toggle bar.
@@ -966,11 +1066,29 @@ sap.ui.define([
                 ? aRoleFilters[0]
                 : new Filter({ filters: aRoleFilters, and: false });
 
-            oModel.bindList("/BPRoleFields", null, [new Sorter("sequence")], [oFilter], {
-                $expand: "field($select=field_id,description,data_type,display_type,length,source_table,main_group_group_id,sub_group_group_id;$expand=validation($select=validation_id,function_name,trigger_on,error_message,input_param_1,input_param_2,input_param_3))",
-                $select: "role_role_id,field_field_id,field_status,sequence,read_only,default_value"
-            }).requestContexts(0, Infinity).then(function (aCtx) {
+            Promise.all([
+                oModel.bindList("/BPRoleFields", null, [new Sorter("sequence")], [oFilter], {
+                    $expand: "field($select=field_id,description,data_type,display_type,length,source_table,main_group_group_id,sub_group_group_id,grid,grid_overview;" +
+                             "$expand=validation($select=validation_id,function_name,trigger_on,error_message,input_param_1,input_param_2,input_param_3)," +
+                             "grid_columns($select=column_name,description,data_type,display_type,length,source_table;" +
+                             "$expand=validation($select=validation_id,function_name,trigger_on,error_message,input_param_1,input_param_2,input_param_3)))",
+                    $select: "role_role_id,field_field_id,field_status,sequence,read_only,default_value"
+                }).requestContexts(0, Infinity),
+                this._getGroupParentMap()
+            ]).then(function (aResults) {
+                var aCtx      = aResults[0];
+                var oParentOf = aResults[1];
                 this._aAllAssignments = aCtx.map(function (c) {
+                    var bGrid = c.getProperty("field/grid") === true;
+                    var bGridOverview = bGrid && c.getProperty("field/grid_overview") === true;
+                    var sSub  = c.getProperty("field/sub_group_group_id") || "";
+                    // Derived from the live group tree when a sub-group is set
+                    // (see _findRootGroup above); only falls back to the
+                    // field's own stored FK — or "GD" as a last resort — when
+                    // there's no sub-group to derive it from.
+                    var sMain = sSub
+                        ? this._findRootGroup(sSub, oParentOf)
+                        : (c.getProperty("field/main_group_group_id") || "GD");
                     return {
                         role       : c.getProperty("role_role_id"),
                         field_id   : c.getProperty("field_field_id"),
@@ -978,8 +1096,8 @@ sap.ui.define([
                         data_type  : c.getProperty("field/data_type") || "STRING",
                         display    : c.getProperty("field/display_type") || "INPUT",
                         sourceTable: c.getProperty("field/source_table") || "",
-                        mainGroup  : c.getProperty("field/main_group_group_id") || "GD",
-                        subGroup   : c.getProperty("field/sub_group_group_id") || "",
+                        mainGroup  : sMain,
+                        subGroup   : sSub,
                         status     : c.getProperty("field_status"),
                         readOnly   : c.getProperty("read_only") === true,
                         defaultVal : c.getProperty("default_value") || "",
@@ -988,9 +1106,30 @@ sap.ui.define([
                         valTrigger : c.getProperty("field/validation/trigger_on") || "",
                         valMsg     : c.getProperty("field/validation/error_message") || "",
                         valParam1  : c.getProperty("field/validation/input_param_1") || "",
-                        valParam2  : c.getProperty("field/validation/input_param_2") || ""
+                        valParam2  : c.getProperty("field/validation/input_param_2") || "",
+                        // Grid-type fields (see FieldMaster.grid): the field is
+                        // maintained as a mini table of columns rather than a
+                        // single value — gridColumns holds that column set, and
+                        // _fieldControl/_pushFieldValueEntries branch on `grid`
+                        // to render/save it as such.
+                        grid       : bGrid,
+                        gridOverview: bGridOverview,
+                        gridColumns: bGrid ? (c.getObject("field/grid_columns") || []).map(function (gc) {
+                            return {
+                                column_name : gc.column_name,
+                                description : gc.description || gc.column_name,
+                                data_type   : gc.data_type || "STRING",
+                                display_type: gc.display_type || "INPUT",
+                                length      : gc.length,
+                                source_table: gc.source_table || "",
+                                valFn       : (gc.validation && gc.validation.function_name) || "",
+                                valTrigger  : (gc.validation && gc.validation.trigger_on) || "",
+                                valMsg      : (gc.validation && gc.validation.error_message) || "",
+                                valParam1   : (gc.validation && gc.validation.input_param_1) || ""
+                            };
+                        }) : []
                     };
-                });
+                }.bind(this));
                 return this._fetchPrereqFields(aResolvedRoles);
             }.bind(this)).then(function () {
                 this._setupActiveRole(aResolvedRoles);
@@ -1102,6 +1241,10 @@ sap.ui.define([
         _renderTabsForActiveRole: function () {
             var oTabs = this.byId("cbpTabs");
             oTabs.destroyItems();
+            // Old entries reference containers that destroyItems() above (or
+            // the previous render pass) already tore down — reset before
+            // this pass repopulates it for whichever Overview tabs it builds.
+            this._mOverviewRefreshers = {};
 
             var sActive = this._oRt.getProperty("/activeRole");
             // Each role in the bar shows only its OWN assigned fields.
@@ -1172,7 +1315,11 @@ sap.ui.define([
             var mExisting   = mAllValues[sActive] || {};
             var mRoleValues = Object.assign({}, mExisting);
             Object.keys(mFields).forEach(function (sFid) {
-                mRoleValues[sFid] = mExisting[sFid] !== undefined ? mExisting[sFid] : "";
+                if (mExisting[sFid] !== undefined) {
+                    mRoleValues[sFid] = mExisting[sFid];
+                } else {
+                    mRoleValues[sFid] = mFields[sFid].grid ? [] : "";
+                }
             });
             mAllValues[sActive] = mRoleValues;
             oFormModel.setProperty("/values", mAllValues);
@@ -1254,21 +1401,42 @@ sap.ui.define([
 
                 var oTabContent = new VBox();
                 aBuckets.forEach(function (oBucket, iIdx) {
-                    var oForm = new SimpleForm({
-                        editable: true,
-                        layout: "ResponsiveGridLayout",
-                        labelSpanXL: 4, labelSpanL: 4, labelSpanM: 4, labelSpanS: 12,
-                        columnsXL: 2, columnsL: 2, columnsM: 1
-                    });
-                    oBucket.fields.forEach(function (f) {
-                        oForm.addContent(new Label({ text: f.description, required: f.status === "REQUIRED" }));
-                        oForm.addContent(this._fieldControl(f));
+                    // A grid field's actual table needs the full row width
+                    // (not the ~60% "value" column SimpleForm gives a normal
+                    // field) so it renders as its own full-width section
+                    // below the form. But its LABEL still gets a row INSIDE
+                    // the form, same as every normal field — that's what
+                    // guarantees it lines up with them (e.g. "Validity End
+                    // of a BP Address") exactly, since it's going through the
+                    // identical layout mechanism rather than an approximation
+                    // of its spacing.
+                    var aNormalFields = oBucket.fields.filter(function (f) { return !f.grid; });
+                    var aGridFields   = oBucket.fields.filter(function (f) { return f.grid; });
+
+                    var oPanelContent = new VBox();
+
+                    if (aNormalFields.length) {
+                        var oForm = new SimpleForm({
+                            editable: true,
+                            layout: "ResponsiveGridLayout",
+                            labelSpanXL: 4, labelSpanL: 4, labelSpanM: 4, labelSpanS: 12,
+                            columnsXL: 2, columnsL: 2, columnsM: 1
+                        });
+                        aNormalFields.forEach(function (f) {
+                            oForm.addContent(new Label({ text: f.description, required: f.status === "REQUIRED" }));
+                            oForm.addContent(this._fieldControl(f));
+                        }.bind(this));
+                        oPanelContent.addItem(oForm);
+                    }
+
+                    aGridFields.forEach(function (f) {
+                        oPanelContent.addItem(this._buildGridFieldSection(f));
                     }.bind(this));
 
                     var oSubMeta = this._mGroups[oBucket.key] || {};
                     var oPanel = new Panel({
                         headerText: (oSubMeta.description || oBucket.key) + " (" + oBucket.fields.length + ")",
-                        expandable: true, expanded: iIdx === 0, content: [oForm]
+                        expandable: true, expanded: iIdx === 0, content: [oPanelContent]
                     });
                     oPanel.addStyleClass("sapUiSmallMarginBottom");
                     oPanel.addStyleClass("sapUiNoContentPadding");
@@ -1277,11 +1445,42 @@ sap.ui.define([
 
                 var oTab = new IconTabFilter({
                     key: sMain, text: oGrpMeta.description || sMain.replace(/_/g, " "),
+                    tooltip: oGrpMeta.description || sMain.replace(/_/g, " "),
                     count: String(aFields.length), icon: oGrpMeta.icon || "sap-icon://form",
                     content: [oTabContent]
                 });
                 this._aMainTabItems.push(oTab);
                 oTabs.addItem(oTab);
+
+                // A sibling "<Main Group> Overview" tab — built only from
+                // fields explicitly opted in via grid_overview on Field
+                // Master (see onGridSwitchChange there), not inferred
+                // automatically from the group's field mix. Shows the first
+                // record of each opted-in field as a plain vertical form
+                // (one column's label+value per row, not a table) —
+                // editable, and bound directly to row 0 of the same
+                // underlying array the main tab's grid table uses, so an
+                // edit in either place is immediately visible in the other.
+                var aOverviewFields = aFields.filter(function (f) { return f.grid && f.gridOverview; });
+                if (aOverviewFields.length) {
+                    var sGrpName = oGrpMeta.description || sMain.replace(/_/g, " ");
+                    var oOverviewContainer = new VBox();
+                    var sOverviewKey = sMain + "__overview";
+                    this._mOverviewRefreshers[sOverviewKey] = function () {
+                        this._refreshMainGroupOverviewContent(aOverviewFields, oOverviewContainer);
+                    }.bind(this);
+                    this._refreshMainGroupOverviewContent(aOverviewFields, oOverviewContainer);
+
+                    var oOverviewTab = new IconTabFilter({
+                        key: sOverviewKey,
+                        text: sGrpName + " Overview",
+                        tooltip: sGrpName + " Overview",
+                        icon: "sap-icon://detail-view",
+                        content: [oOverviewContainer]
+                    });
+                    this._aMainTabItems.push(oOverviewTab);
+                    oTabs.addItem(oOverviewTab);
+                }
             }.bind(this));
 
             this._oRt.setProperty("/preqDisp", iTotal + " field" + (iTotal !== 1 ? "s" : ""));
@@ -1727,6 +1926,55 @@ sap.ui.define([
             }
         },
 
+        // Pushes CR_FIELD_VALUE-shaped entries for one field into aOut.
+        // Grid fields (a.grid) hold an ARRAY of row-objects in the form model,
+        // keyed by column_name (e.g. [{AMOUNT:"10"}, {AMOUNT:"20"}]) — each row
+        // expands into one entry PER COLUMN, carrying column_name and a 1-based
+        // counter per row (0 stays reserved for ordinary single-value fields —
+        // see the CRFieldValue INSERT in mdm-service.js, which already passes
+        // column_name/counter through when present). Non-grid fields are
+        // unchanged: one entry, column_name/counter left at their defaults.
+        _pushFieldValueEntries: function (aOut, mSeenKeys, sRoleId, iInstNo, a, vVal, mPrereqSet) {
+            var bPrereq = !!(mPrereqSet[sRoleId] && mPrereqSet[sRoleId][a.field_id]);
+
+            if (a.grid) {
+                if (!Array.isArray(vVal) || !vVal.length) { return; }
+                vVal.forEach(function (oRow, iRowIdx) {
+                    (a.gridColumns || []).forEach(function (gc) {
+                        var vCell = oRow ? oRow[gc.column_name] : undefined;
+                        if (vCell === undefined || vCell === null || String(vCell).trim() === "") { return; }
+                        var sKey = sRoleId + "|" + iInstNo + "|" + a.field_id + "|" + gc.column_name + "|" + (iRowIdx + 1);
+                        if (mSeenKeys[sKey]) { return; }
+                        mSeenKeys[sKey] = true;
+                        aOut.push({
+                            role_id         : sRoleId,
+                            instance_no     : iInstNo,
+                            field_id        : a.field_id,
+                            column_name     : gc.column_name,
+                            counter         : iRowIdx + 1,
+                            new_value       : String(vCell),
+                            source_level    : "ROLE",
+                            prereq_indicator: bPrereq
+                        });
+                    });
+                });
+                return;
+            }
+
+            if (vVal === undefined || vVal === null || String(vVal).trim() === "") { return; }
+            var sKey2 = sRoleId + "|" + iInstNo + "|" + a.field_id;
+            if (mSeenKeys[sKey2]) { return; }
+            mSeenKeys[sKey2] = true;
+            aOut.push({
+                role_id         : sRoleId,
+                instance_no     : iInstNo,
+                field_id        : a.field_id,
+                new_value       : String(vVal),
+                source_level    : "ROLE",
+                prereq_indicator: bPrereq
+            });
+        },
+
         // Build the right input control for a field's display type.
         // IMPORTANT: the binding path is namespaced by role (f.role) — not just
         // field_id — because the same field_id can be assigned to multiple
@@ -1736,6 +1984,13 @@ sap.ui.define([
         // other role sharing that field, and the save logic picked up only
         // the last-typed value for all of them.
         _fieldControl: function (f) {
+            // Grid-type fields (FieldMaster.grid = true) are maintained as a
+            // mini table of columns rather than a single value — render an
+            // editable Add/Delete-row table instead of a single control.
+            if (f.grid) {
+                return this._buildGridFieldControl(f);
+            }
+
             var sPath    = "{form>/values/" + f.role + "/" + f.field_id + "}";
             var bEditable = !f.readOnly;
 
@@ -1851,11 +2106,702 @@ sap.ui.define([
             return oInput;
         },
 
+        // Full-width section for a grid field: a label (matching the style
+        // every other field's label uses) above the Add/Delete-row table
+        // from _buildGridFieldControl. Placed as its own item in the
+        // sub-group panel, not inside the SimpleForm — see the bucket loop
+        // above for why.
+        // Full-width section for a grid field: a label above the Add/Delete-
+        // row table from _buildGridFieldControl. Placed as its own item in
+        // the sub-group panel, not inside the SimpleForm (see the bucket
+        // loop above for why) — which means it doesn't get the SimpleForm's
+        // own label styling for free (the theme applies that, plus the
+        // trailing colon, only to labels actually inside a form layout).
+        // Matched by hand here instead: same plain (non-bold) weight as
+        // every other field's label, same explicit colon, so a grid field
+        // reads as part of the same list of fields rather than a visually
+        // heavier, oddly-placed outlier between two normal ones. A top
+        // Full-width table block for a grid field, with its own label
+        // directly above it. A grid table needs the full row width, not the
+        // ~60% "value" column a normal field's label/input pair gets in the
+        // SimpleForm above, so it renders as its own section rather than a
+        // form row. With more than one grid field in the same panel, a
+        // table with no label of its own is ambiguous about which field it
+        // belongs to, so the label is repeated here rather than only
+        // relying on a normal field's label elsewhere in the panel.
+        _buildGridFieldSection: function (f) {
+            var oLabel = new Label({ text: f.description, design: "Bold" });
+            oLabel.addStyleClass("sapUiTinyMarginTop");
+            var oSection = new VBox({ items: [oLabel, this._buildGridFieldControl(f)] });
+            oSection.addStyleClass("sapUiSmallMarginBeginEnd");
+            oSection.addStyleClass("sapUiSmallMarginTop");
+            oSection.addStyleClass("sapUiSmallMarginBottom");
+            oSection.addStyleClass("mdmGridFieldSection");
+            return oSection;
+        },
+
+        // ── Grid-type field (FieldMaster.grid = true) ─────────────────
+        // Renders an editable table — one row per entry, one column per
+        // GridColumn definition — instead of a single Label+control pair.
+        // Row data lives at form>/values/<role>/<field_id> as an ARRAY of
+        // plain objects keyed by column_name (e.g. [{AMOUNT:"10", CURRENCY:"USD"}]);
+        // _pushFieldValueEntries expands that array into one CR_FIELD_VALUE
+        // entry per (row, column) at save time, using column_name + a
+        // 1-based counter per row (0 stays reserved for ordinary
+        // single-value fields — see CRFieldValue in mdm-service.js).
+        _buildGridFieldControl: function (f) {
+            // A grid column named IsDefault/IsStandard/Default/Standard/
+            // IsMain/Primary/IsPrimary (case-insensitive) is treated as a
+            // "mark one row as THE record" flag — mirrors SAP GUI's own
+            // "Standard Address" checkbox in BP > Address Overview. When one
+            // is present, this field gets the same split SAP uses: an
+            // editable single-record view of whichever row has that flag
+            // set (falling back to the first row if none do), plus the full
+            // multi-row table for managing all of them. No schema change —
+            // this is just an ordinary BOOLEAN GridColumn, configured like
+            // any other on the Grid Columns tab.
+            var oDefaultCol = this._findDefaultFlagColumn(f.gridColumns || []);
+            if (oDefaultCol) {
+                return this._buildGridFieldWithSingleView(f, oDefaultCol);
+            }
+            return this._buildGridOverviewContent(f);
+        },
+
+        _findDefaultFlagColumn: function (aCols) {
+            var aNames = ["isdefault", "isstandard", "default", "standard", "ismain", "primary", "isprimary"];
+            for (var i = 0; i < aCols.length; i++) {
+                if (aNames.indexOf((aCols[i].column_name || "").toLowerCase()) >= 0) {
+                    return aCols[i];
+                }
+            }
+            return null;
+        },
+
+        // Same true/false normalization reasoning as elsewhere in this app
+        // (e.g. FieldMaster.controller.js's _isActive) — a grid cell's
+        // boolean value can arrive as an actual boolean, 1/0, or "true"/
+        // "false", and a raw truthy check on the latter is unsafe (the
+        // non-empty string "false" is truthy in JS).
+        _isTruthyGridFlag: function (v) {
+            if (typeof v === "string") {
+                var s = v.trim().toLowerCase();
+                return (s === "yes" || s === "true" || s === "1" || s === "x");
+            }
+            return v === true || v === 1;
+        },
+
+        // Overview content only — the existing table (inline-editable for
+        // <=3 columns, or preview+popup for >3, see _buildGridFieldPreview).
+        // Used directly for fields with no default-flag column, and as the
+        // "All Records" tab when one is present.
+        _buildGridOverviewContent: function (f) {
+            // More than 3 columns doesn't fit usefully as inline table
+            // cells — mirrors SAP GUI's own BP transaction: the Address
+            // Overview list shows a compact preview, actual data entry
+            // happens in a popup (see BP > Address). Same split here: a
+            // read-only preview table (first 4 columns) + a popup editor
+            // with every column, instead of cramming everything into the
+            // row directly.
+            if ((f.gridColumns || []).length > 3) {
+                return this._buildGridFieldPreview(f);
+            }
+
+            // Two forms of the same path, for two different call styles:
+            // - sBindPath keeps the "form>" model-name prefix — needed for
+            //   the items aggregation binding below (a binding info path
+            //   is resolved against the named model it references).
+            // - sModelPath drops it — required for oFormModel.getProperty()/
+            //   .setProperty() calls, since those run directly on the "form"
+            //   model instance and a literal "form>" prefix isn't a real
+            //   property in its data, so those calls always silently
+            //   resolved/wrote to nothing. That was the root cause of
+            //   "Add Row" (and row delete) not doing anything.
+            var sModelPath = "/values/" + f.role + "/" + f.field_id;
+            var sBindPath  = "form>" + sModelPath;
+            var oFormModel = this.getView().getModel("form");
+            var aCols = f.gridColumns || [];
+            var oDefaultCol = this._findDefaultFlagColumn(aCols);
+
+            var oTable = new Table({
+                noDataText: "No rows yet \u2014 use \u201cAdd Row\u201d below.",
+                growing: false,
+                fixedLayout: false,
+                columns: aCols.map(function (gc) {
+                    return new Column({ header: new Label({ text: gc.description, design: "Bold" }) });
+                }).concat([ new Column({ hAlign: "End", width: "3rem" }) ]),
+                items: {
+                    path: sBindPath,
+                    templateShareable: false,
+                    template: new ColumnListItem({
+                        cells: aCols.map(function (gc) {
+                            return this._gridCellControl(f, gc, null, oDefaultCol);
+                        }.bind(this)).concat([
+                            new Button({
+                                icon: "sap-icon://delete",
+                                type: "Transparent",
+                                tooltip: "Remove row",
+                                press: function (oEv) {
+                                    var oRowCtx = oEv.getSource().getBindingContext("form");
+                                    var iIdx = parseInt(oRowCtx.getPath().split("/").pop(), 10);
+                                    var aRows = (oFormModel.getProperty(sModelPath) || []).slice();
+                                    aRows.splice(iIdx, 1);
+                                    oFormModel.setProperty(sModelPath, aRows);
+                                }
+                            })
+                        ])
+                    })
+                }
+            });
+
+            var oAddBtn = new Button({
+                text: "Add Row",
+                icon: "sap-icon://add",
+                type: "Transparent",
+                press: function () {
+                    var aRows = (oFormModel.getProperty(sModelPath) || []).slice();
+                    var oNewRow = {};
+                    aCols.forEach(function (gc) { oNewRow[gc.column_name] = ""; });
+                    aRows.push(oNewRow);
+                    oFormModel.setProperty(sModelPath, aRows);
+                }
+            });
+
+            var oBox = new VBox({ items: [oTable, oAddBtn] });
+            oBox.addStyleClass("sapUiTinyMarginTop");
+            return oBox;
+        },
+
+        // ── Overview + Standard Record split (default-flag column present) ──
+        // Mirrors SAP GUI BP > Address / Address Overview: a mini tab bar
+        // with an editable single-record view of the current default row,
+        // and the full multi-row table alongside it. Both views share the
+        // same underlying array, so edits in either are immediately visible
+        // in the other.
+        _buildGridFieldWithSingleView: function (f, oDefaultCol) {
+            var sModelPath = "/values/" + f.role + "/" + f.field_id;
+            var oFormModel = this.getView().getModel("form");
+
+            var oSingleContainer = new VBox();
+            var oOverviewContainer = new VBox({ items: [this._buildGridOverviewContent(f)] });
+
+            var oMiniTabs = new IconTabBar({
+                expandable: false,
+                select: function (oEv) {
+                    if (oEv.getParameter("key") === "single") {
+                        this._refreshSingleRecordView(f, oDefaultCol, oSingleContainer, sModelPath, oFormModel);
+                    }
+                }.bind(this),
+                items: [
+                    new IconTabFilter({ key: "single", text: "Standard Record", icon: "sap-icon://record", content: [oSingleContainer] }),
+                    new IconTabFilter({ key: "overview", text: "All Records", icon: "sap-icon://list", content: [oOverviewContainer] })
+                ]
+            });
+            oMiniTabs.addStyleClass("sapUiTinyMarginTop");
+
+            // The single-record tab is selected by default, but IconTabBar's
+            // select event only fires on a user-driven switch — populate it
+            // once up front too, or it would start out empty.
+            this._refreshSingleRecordView(f, oDefaultCol, oSingleContainer, sModelPath, oFormModel);
+
+            return oMiniTabs;
+        },
+
+        // Resolves whichever row currently has the default flag set (falling
+        // back to the first row if none do) and builds an editable form
+        // bound DIRECTLY to that row's absolute path in the array — plain
+        // two-way property bindings, not the manual get/set the popup
+        // dialog uses, since this form always corresponds to a row that
+        // already exists (never "add a new one"). Re-resolves the row index
+        // fresh each time it's called (on tab select, and once up front)
+        // rather than caching it, since rows can be added/removed/reordered
+        // from the "All Records" tab in the same session and a stale index
+        // would silently edit the wrong row.
+        _refreshSingleRecordView: function (f, oDefaultCol, oContainer, sModelPath, oFormModel) {
+            oContainer.destroyItems();
+
+            var aRows = oFormModel.getProperty(sModelPath) || [];
+            var iIdx = -1;
+            for (var i = 0; i < aRows.length; i++) {
+                if (this._isTruthyGridFlag(aRows[i][oDefaultCol.column_name])) { iIdx = i; break; }
+            }
+            if (iIdx < 0 && aRows.length) { iIdx = 0; }   // none flagged yet — default to the first row
+
+            if (iIdx < 0) {
+                oContainer.addItem(new Text({
+                    text: "No records yet \u2014 add one from \u201cAll Records\u201d.",
+                    class: "mdmGridFieldRepeatLabel"
+                }));
+                return;
+            }
+
+            var sRowBindPath = "form>" + sModelPath + "/" + iIdx;
+            var oForm = new SimpleForm({
+                editable: true,
+                layout: "ResponsiveGridLayout",
+                labelSpanXL: 4, labelSpanL: 4, labelSpanM: 4, labelSpanS: 12,
+                columnsXL: 2, columnsL: 2, columnsM: 1
+            });
+            // The flag column itself isn't shown here — while looking at
+            // "the standard record" it's implicitly true; toggling *which*
+            // row is standard happens from the All Records list instead.
+            (f.gridColumns || []).forEach(function (gc) {
+                if (gc.column_name === oDefaultCol.column_name) { return; }
+                oForm.addContent(new Label({ text: gc.description }));
+                oForm.addContent(this._gridCellControl(f, gc, sRowBindPath, oDefaultCol));
+            }.bind(this));
+
+            if (aRows.length > 1) {
+                oContainer.addItem(new Text({
+                    text: "Showing the record marked Standard. Switch to \u201cAll Records\u201d to manage all " + aRows.length + ".",
+                    class: "mdmGridFieldRepeatLabel sapUiTinyMarginBottom"
+                }));
+            }
+            oContainer.addItem(oForm);
+        },
+
+        // Clears the default flag on every row except iKeepIdx — enforces
+        // "at most one row is Standard at a time", the same way SAP GUI
+        // auto-unchecks a previous Standard Address when a new one is
+        // marked. iKeepIdx is null when called from the popup dialog's Save
+        // (the row being saved isn't in the array yet at the point this
+        // needs to run against the OTHER existing rows).
+        _enforceSingleDefaultFlag: function (sModelPath, oFormModel, oDefaultCol, iKeepIdx) {
+            var aRows = (oFormModel.getProperty(sModelPath) || []).slice();
+            var bChanged = false;
+            aRows.forEach(function (r, i) {
+                if (i === iKeepIdx) { return; }
+                if (this._isTruthyGridFlag(r[oDefaultCol.column_name])) {
+                    r[oDefaultCol.column_name] = false;
+                    bChanged = true;
+                }
+            }.bind(this));
+            if (bChanged) { oFormModel.setProperty(sModelPath, aRows); }
+        },
+
+        // ── "<Main Group> Overview" tab (all-grid main groups only) ────
+        // One vertical form per grid field in the group, showing/editing
+        // row 0 of each — the first record, laid out as a normal Label-
+        // above-value form (not a table). Bound directly to
+        // form>/values/{role}/{field_id}/0/{column_name}, the same path
+        // the main tab's own grid table reads/writes, via a plain two-way
+        // property binding — no manual get/set needed. Rebuilt on tab
+        // select (see the listener in onInit) rather than only once at
+        // build time, so it reflects a row added after the tab was first
+        // rendered with none — "row 0" being a fixed path means the value
+        // bindings themselves stay live, but whether to show the empty-
+        // state placeholder or the form is decided once per build, so that
+        // part still needs a fresh rebuild to notice a 0-to-1 change.
+        _refreshMainGroupOverviewContent: function (aGridFields, oOuter) {
+            oOuter.destroyItems();
+            aGridFields.forEach(function (f, iFieldIdx) {
+                var sModelPath   = "/values/" + f.role + "/" + f.field_id;
+                var oFormModel   = this.getView().getModel("form");
+                var aRows        = oFormModel.getProperty(sModelPath) || [];
+                var sRowBindPath = "form>" + sModelPath + "/0";
+
+                var oSection = new VBox();
+                oSection.addStyleClass("sapUiSmallMarginBeginEnd");
+                oSection.addStyleClass("sapUiSmallMarginTop");
+                oSection.addStyleClass("sapUiSmallMarginBottom");
+                if (iFieldIdx > 0) { oSection.addStyleClass("mdmGridFieldSection"); }
+
+                oSection.addItem(new Label({ text: f.description, design: "Bold" }));
+
+                if (!aRows.length) {
+                    oSection.addItem(new Text({
+                        text: "No records yet \u2014 add one from the " + f.description + " tab.",
+                        class: "mdmGridFieldRepeatLabel sapUiTinyMarginTop"
+                    }));
+                    oOuter.addItem(oSection);
+                    return;
+                }
+
+                var oDefaultCol = this._findDefaultFlagColumn(f.gridColumns || []);
+                var oForm = new SimpleForm({
+                    editable: true,
+                    layout: "ResponsiveGridLayout",
+                    labelSpanXL: 4, labelSpanL: 4, labelSpanM: 4, labelSpanS: 12,
+                    columnsXL: 1, columnsL: 1, columnsM: 1
+                });
+                (f.gridColumns || []).forEach(function (gc) {
+                    oForm.addContent(new Label({ text: gc.description }));
+                    oForm.addContent(this._gridCellControl(f, gc, sRowBindPath, oDefaultCol));
+                }.bind(this));
+
+                if (aRows.length > 1) {
+                    oSection.addItem(new Text({
+                        text: "Showing the first of " + aRows.length + " records.",
+                        class: "mdmGridFieldRepeatLabel"
+                    }));
+                }
+                oSection.addItem(oForm);
+                oOuter.addItem(oSection);
+            }.bind(this));
+        },
+
+        // ── Preview + popup editor (grid fields with > 3 columns) ─────
+        // Table shows only the first 4 columns, read-only — tapping a row
+        // (or "Add Row") opens _openGridRowDialog with every column instead
+        // of trying to fit them all as inline cells.
+        _buildGridFieldPreview: function (f) {
+            var sModelPath = "/values/" + f.role + "/" + f.field_id;
+            var sBindPath  = "form>" + sModelPath;
+            var oFormModel = this.getView().getModel("form");
+            var aCols        = f.gridColumns || [];
+            var aPreviewCols = aCols.slice(0, 4);
+
+            var oTable = new Table({
+                noDataText: "No rows yet \u2014 use \u201cAdd Row\u201d below.",
+                growing: false,
+                fixedLayout: false,
+                columns: aPreviewCols.map(function (gc) {
+                    return new Column({ header: new Label({ text: gc.description, design: "Bold" }) });
+                }).concat([ new Column({ hAlign: "End", width: "3rem" }) ]),
+                items: {
+                    path: sBindPath,
+                    templateShareable: false,
+                    template: new ColumnListItem({
+                        type: "Navigation",
+                        press: function (oEv) {
+                            var oRowCtx = oEv.getSource().getBindingContext("form");
+                            var iIdx = parseInt(oRowCtx.getPath().split("/").pop(), 10);
+                            this._openGridRowDialog(f, iIdx);
+                        }.bind(this),
+                        cells: aPreviewCols.map(function (gc) {
+                            return new Text({ text: "{form>" + gc.column_name + "}" });
+                        }).concat([
+                            new Button({
+                                icon: "sap-icon://delete",
+                                type: "Transparent",
+                                tooltip: "Remove row",
+                                press: function (oEv) {
+                                    var oRowCtx = oEv.getSource().getBindingContext("form");
+                                    var iIdx = parseInt(oRowCtx.getPath().split("/").pop(), 10);
+                                    var aRows = (oFormModel.getProperty(sModelPath) || []).slice();
+                                    aRows.splice(iIdx, 1);
+                                    oFormModel.setProperty(sModelPath, aRows);
+                                }
+                            })
+                        ])
+                    })
+                }
+            });
+
+            var oAddBtn = new Button({
+                text: "Add Row",
+                icon: "sap-icon://add",
+                type: "Transparent",
+                press: function () { this._openGridRowDialog(f, null); }.bind(this)
+            });
+
+            var oBox = new VBox({ items: [oTable, oAddBtn] });
+            oBox.addStyleClass("sapUiTinyMarginTop");
+            return oBox;
+        },
+
+        // Rebuilt fresh on every call (see the note inside for why a cached,
+        // reused-per-field dialog turned out to be unsafe). Used for both
+        // Add and Edit. iRowIndex: null/undefined → Add mode. A row index →
+        // Edit mode, pre-filled from that row's current values.
+        _openGridRowDialog: function (f, iRowIndex) {
+            var sModelPath = "/values/" + f.role + "/" + f.field_id;
+            var oFormModel = this.getView().getModel("form");
+            var aCols = f.gridColumns || [];
+            var bEdit = (iRowIndex !== null && iRowIndex !== undefined);
+
+            // Rebuilt fresh every time, not cached per field_id — a cached
+            // dialog's controls were built against whatever grid_columns
+            // existed the FIRST time it was opened in this session. If a
+            // column is added or removed after that (e.g. editing the
+            // field's Grid Columns in Field Master, then coming back to
+            // Create BP without a full page reload), the cached control
+            // list no longer matches the current one, and indexing into a
+            // column that didn't exist yet returns undefined — calling
+            // .setValue() on that is exactly the "Cannot read properties of
+            // undefined (reading 'setValue')" crash. Rebuilding avoids the
+            // whole class of staleness this caching introduced; a handful
+            // of Input/CheckBox controls is cheap enough to not need the
+            // cache in the first place.
+            this._oGridRowDialogs = this._oGridRowDialogs || {};
+            if (this._oGridRowDialogs[f.field_id]) {
+                this._oGridRowDialogs[f.field_id].destroy();
+                delete this._oGridRowDialogs[f.field_id];
+            }
+
+            var oSimpleForm = new SimpleForm({
+                editable: true,
+                layout: "ResponsiveGridLayout",
+                labelSpanXL: 4, labelSpanL: 4, labelSpanM: 4, labelSpanS: 12,
+                columnsXL: 1, columnsL: 1, columnsM: 1
+            });
+            var aCtrls = aCols.map(function (gc) {
+                var oCtrl = this._gridCellStandaloneControl(gc);
+                oSimpleForm.addContent(new Label({ text: gc.description }));
+                oSimpleForm.addContent(oCtrl);
+                return oCtrl;
+            }.bind(this));
+
+            var oDefaultCol = this._findDefaultFlagColumn(aCols);
+            var oDialog = new Dialog({
+                contentWidth: "32rem",
+                content: [oSimpleForm],
+                beginButton: new Button({
+                    type: "Emphasized",
+                    press: function () {
+                        var oRow = {};
+                        aCols.forEach(function (gc, i) {
+                            oRow[gc.column_name] = this._getCtrlValue(aCtrls[i]);
+                        }.bind(this));
+                        var aRows = (oFormModel.getProperty(sModelPath) || []).slice();
+                        var iIdx = oDialog._iEditingIndex;
+                        if (iIdx !== null && iIdx !== undefined) {
+                            aRows[iIdx] = oRow;
+                        } else {
+                            aRows.push(oRow);
+                            iIdx = aRows.length - 1;
+                        }
+                        oFormModel.setProperty(sModelPath, aRows);
+                        if (oDefaultCol && this._isTruthyGridFlag(oRow[oDefaultCol.column_name])) {
+                            this._enforceSingleDefaultFlag(sModelPath, oFormModel, oDefaultCol, iIdx);
+                        }
+                        oDialog.close();
+                    }.bind(this)
+                }),
+                endButton: new Button({
+                    text: "Cancel",
+                    press: function () { oDialog.close(); }
+                }),
+                afterClose: function () { oDialog.destroy(); delete this._oGridRowDialogs[f.field_id]; }.bind(this)
+            });
+            oDialog._aCtrls = aCtrls;
+            this.getView().addDependent(oDialog);
+            this._oGridRowDialogs[f.field_id] = oDialog;
+
+            oDialog._iEditingIndex = bEdit ? iRowIndex : null;
+            oDialog.setTitle(f.description + (bEdit ? " \u2014 Edit Row" : " \u2014 Add Row"));
+            oDialog.getBeginButton().setText(bEdit ? "Save" : "Add");
+
+            var oExistingRow = bEdit ? ((oFormModel.getProperty(sModelPath) || [])[iRowIndex] || {}) : {};
+            aCols.forEach(function (gc, i) {
+                this._setCtrlValue(oDialog._aCtrls[i], oExistingRow[gc.column_name]);
+            }.bind(this));
+
+            oDialog.open();
+        },
+
+        // Resolves a grid column to a lookup entity set the same way
+        // _fieldControl does for a normal field's source_table — a
+        // per-column override (SOURCE_TO_LOOKUP["T005_COUNTRY"]) takes
+        // priority over the plain source_table match, then falls back to
+        // null (plain text input) if nothing matches or source_table isn't
+        // set. Grid columns need their OWN source_table configured on the
+        // Grid Columns tab for this to activate — same requirement normal
+        // fields already have.
+        _resolveGridColumnEntitySet: function (gc) {
+            if (!gc.source_table) { return null; }
+            return SOURCE_TO_LOOKUP[gc.source_table + "_" + gc.column_name]
+                || SOURCE_TO_LOOKUP[gc.source_table]
+                || null;
+        },
+
+        // Same data_type/display_type branching as _gridCellControl, but
+        // unbound — this dialog isn't tied to a live row context (it can be
+        // adding a brand new row that doesn't exist in the array yet), so
+        // values are read/written directly via _getCtrlValue/_setCtrlValue
+        // instead of a binding path.
+        _gridCellStandaloneControl: function (gc) {
+            if (gc.data_type === "BOOLEAN" || gc.display_type === "CHECKBOX") {
+                return new CheckBox();
+            }
+            if (gc.data_type === "DATE" || gc.display_type === "DATEPICKER") {
+                return new DatePicker({ width: "100%" });
+            }
+            if (gc.display_type === "DROPDOWN" || gc.display_type === "SEARCH_HELP") {
+                var sEntitySet = this._resolveGridColumnEntitySet(gc);
+
+                if (gc.display_type === "DROPDOWN") {
+                    var oCombo = new ComboBox({
+                        width: "100%",
+                        placeholder: sEntitySet ? "Select\u2026" : "No value list configured"
+                    });
+                    if (sEntitySet) {
+                        this._loadValueList(sEntitySet).then(function (aVals) {
+                            aVals.forEach(function (v) { oCombo.addItem(new Item({ key: v.code, text: v.text })); });
+                        }).catch(function () {});
+                    }
+                    return oCombo;
+                }
+
+                var oVhInput = new Input({
+                    width: "100%", valueHelpOnly: false, showValueHelp: true,
+                    placeholder: sEntitySet ? "Type or search\u2026" : "Enter value\u2026"
+                });
+                if (sEntitySet) { this._loadValueList(sEntitySet); }
+                oVhInput.attachValueHelpRequest(function () {
+                    this._openFieldVHDialog(
+                        { field_id: gc.column_name, description: gc.description },
+                        sEntitySet,
+                        function (sCode) { oVhInput.setValue(sCode); }
+                    );
+                }.bind(this));
+                return oVhInput;
+            }
+            var oCtrl = new Input({
+                width: "100%",
+                type: gc.data_type === "INTEGER" || gc.data_type === "DECIMAL" ? "Number" : "Text",
+                maxLength: gc.length || 0
+            });
+            if (gc.valFn && gc.valTrigger === "FIELD") {
+                oCtrl.attachLiveChange(function (oEv) {
+                    var sVal = oEv.getParameter("value");
+                    var sErr = this._runValidation(gc, sVal);
+                    oEv.getSource().setValueState(sErr ? "Error" : "None");
+                    oEv.getSource().setValueStateText(sErr || "");
+                }.bind(this));
+            }
+            return oCtrl;
+        },
+        _getCtrlValue: function (oCtrl) {
+            return (oCtrl instanceof CheckBox) ? oCtrl.getSelected() : oCtrl.getValue();
+        },
+        _setCtrlValue: function (oCtrl, vVal) {
+            if (oCtrl instanceof CheckBox) {
+                oCtrl.setSelected(vVal === true || vVal === "true");
+            } else {
+                oCtrl.setValue(vVal || "");
+            }
+        },
+
+        // One cell control for a grid column, bound relative to its row
+        // context. Mirrors the same data_type/display_type branching
+        // _fieldControl uses for a normal field, including DROPDOWN/
+        // SEARCH_HELP value-help — resolved via the column's own
+        // source_table through the same SOURCE_TO_LOOKUP map normal fields
+        // use (see _resolveGridColumnEntitySet).
+        // sExplicitRowBindPath: absolute path to a specific row (e.g. from
+        // the single-record view, which always refers to one known row) —
+        // when omitted, falls back to the relative "{form>column_name}"
+        // path resolved against the surrounding row context (table cells,
+        // where each row supplies its own binding context via the
+        // ColumnListItem template).
+        // oDefaultCol: the field's default-flag column if it has one (see
+        // _findDefaultFlagColumn) — when gc IS that column, checking it
+        // clears the flag on every other row (_enforceSingleDefaultFlag),
+        // same as SAP GUI auto-unchecking a previous Standard Address.
+        _gridCellControl: function (f, gc, sExplicitRowBindPath, oDefaultCol) {
+            var sPath = sExplicitRowBindPath
+                ? "{" + sExplicitRowBindPath + "/" + gc.column_name + "}"
+                : "{form>" + gc.column_name + "}";
+            var bIsDefaultFlag = oDefaultCol && gc.column_name === oDefaultCol.column_name;
+
+            if (gc.data_type === "BOOLEAN" || gc.display_type === "CHECKBOX") {
+                var oCheckBox = new CheckBox({ selected: sPath });
+                if (bIsDefaultFlag) {
+                    oCheckBox.attachSelect(function (oEv) {
+                        if (!oEv.getParameter("selected")) { return; }
+                        var oRowCtx = sExplicitRowBindPath
+                            ? null
+                            : oEv.getSource().getBindingContext("form");
+                        var sModelPath = "/values/" + f.role + "/" + f.field_id;
+                        var oFormModel = this.getView().getModel("form");
+                        var iKeepIdx = oRowCtx
+                            ? parseInt(oRowCtx.getPath().split("/").pop(), 10)
+                            : parseInt(sExplicitRowBindPath.split("/").pop(), 10);
+                        this._enforceSingleDefaultFlag(sModelPath, oFormModel, oDefaultCol, iKeepIdx);
+                    }.bind(this));
+                }
+                return oCheckBox;
+            }
+            if (gc.data_type === "DATE" || gc.display_type === "DATEPICKER") {
+                return new DatePicker({ value: sPath, width: "100%" });
+            }
+
+            if (gc.display_type === "DROPDOWN" || gc.display_type === "SEARCH_HELP") {
+                var sEntitySet = this._resolveGridColumnEntitySet(gc);
+
+                if (gc.display_type === "DROPDOWN") {
+                    var oCombo = new ComboBox({
+                        selectedKey: sPath, width: "100%",
+                        placeholder: sEntitySet ? "Select\u2026" : "No value list configured"
+                    });
+                    if (sEntitySet) {
+                        this._loadValueList(sEntitySet).then(function (aVals) {
+                            aVals.forEach(function (v) { oCombo.addItem(new Item({ key: v.code, text: v.text })); });
+                        }).catch(function () {});
+                    }
+                    return oCombo;
+                }
+
+                // SEARCH_HELP: Input with VH button — allows typing OR picking,
+                // same as a normal field's equivalent.
+                var oVhInput = new Input({
+                    value: sPath, valueHelpOnly: false, showValueHelp: true, width: "100%",
+                    placeholder: sEntitySet ? "Type or search\u2026" : "Enter value\u2026"
+                });
+                if (sEntitySet) {
+                    this._loadValueList(sEntitySet);
+                    oVhInput.attachChange(function (oEv) {
+                        var sTyped = (oEv.getParameter("value") || "").trim();
+                        var oSrc = oEv.getSource();
+                        if (!sTyped) { oSrc.setValueState("None"); return; }
+                        var aCached = this._mValueListCache && this._mValueListCache[sEntitySet];
+                        if (aCached) {
+                            var bValid = aCached.some(function (v) {
+                                return v.code === sTyped || v.text.toLowerCase() === sTyped.toLowerCase();
+                            });
+                            oSrc.setValueState(bValid ? "None" : "Error");
+                            oSrc.setValueStateText(bValid ? "" : "Value not found in " + gc.description + " list. Use the search icon to pick a valid value.");
+                        }
+                    }.bind(this));
+                }
+                oVhInput.attachValueHelpRequest(function () {
+                    this._openFieldVHDialog(
+                        { field_id: gc.column_name, description: gc.description },
+                        sEntitySet,
+                        function (sCode) {
+                            var oFormModel = this.getView().getModel("form");
+                            if (sExplicitRowBindPath) {
+                                oFormModel.setProperty(sExplicitRowBindPath.replace(/^form>/, "") + "/" + gc.column_name, sCode);
+                            } else {
+                                var oRowCtx = oVhInput.getBindingContext("form");
+                                if (oRowCtx) {
+                                    oFormModel.setProperty(oRowCtx.getPath() + "/" + gc.column_name, sCode);
+                                }
+                            }
+                        }.bind(this)
+                    );
+                }.bind(this));
+                return oVhInput;
+            }
+
+            var oCellInput = new Input({
+                value: sPath, width: "100%",
+                type: gc.data_type === "INTEGER" || gc.data_type === "DECIMAL" ? "Number" : "Text",
+                maxLength: gc.length || 0
+            });
+            if (gc.valFn && gc.valTrigger === "FIELD") {
+                oCellInput.attachLiveChange(function (oEv) {
+                    var sVal = oEv.getParameter("value");
+                    var sErr = this._runValidation(gc, sVal);
+                    oEv.getSource().setValueState(sErr ? "Error" : "None");
+                    oEv.getSource().setValueStateText(sErr || "");
+                }.bind(this));
+            }
+            return oCellInput;
+        },
+
         // Generic Field Value Help Dialog — opens a searchable table of values
         // for any SEARCH_HELP field. Reused for all fields with display_type = SEARCH_HELP.
-        _openFieldVHDialog: function (f, sEntitySet) {
+        // fnOnSelect: optional. When provided, called with the selected
+        // code instead of writing to form>/values/{role}/{field_id} — used
+        // by grid cells (_gridCellControl / _gridCellStandaloneControl),
+        // which need to write into a specific row's path (or, in the popup
+        // dialog's case, a standalone unbound control) rather than a
+        // top-level field's flat value.
+        _openFieldVHDialog: function (f, sEntitySet, fnOnSelect) {
             var oView = this.getView();
             this._oFieldVHMeta = f;
+            this._fnFieldVHOnSelect = fnOnSelect || null;
 
             if (!this._oFieldVHModel) {
                 this._oFieldVHModel = new JSONModel({ items: [], allItems: [], busy: false, title: "" });
@@ -1916,11 +2862,16 @@ sap.ui.define([
             var oCtx = oEvent.getSource().getBindingContext("fieldVH");
             if (!oCtx) { return; }
             var oItem = oCtx.getObject();
-            var f     = this._oFieldVHMeta;
-            if (!f || !oItem) { return; }
-            // Write selected key into form model, namespaced by the field's role
-            this.getView().getModel("form")
-                .setProperty("/values/" + f.role + "/" + f.field_id, oItem.code);
+            if (!oItem) { return; }
+            if (this._fnFieldVHOnSelect) {
+                this._fnFieldVHOnSelect(oItem.code);
+            } else {
+                var f = this._oFieldVHMeta;
+                if (!f) { return; }
+                // Write selected key into form model, namespaced by the field's role
+                this.getView().getModel("form")
+                    .setProperty("/values/" + f.role + "/" + f.field_id, oItem.code);
+            }
             this._oFieldVHDialog.close();
             setTimeout(this._checkAndGateTabs.bind(this), 0);
         },
@@ -2063,18 +3014,7 @@ sap.ui.define([
                             } else {
                                 sVal = mRoleVals[a.field_id];
                             }
-                            if (sVal === undefined || sVal === null || String(sVal).trim() === "") { return; }
-                            var sKey = sRoleId + "|" + iNo + "|" + a.field_id;
-                            if (mSeen[sKey]) { return; }
-                            mSeen[sKey] = true;
-                            aCRFieldVals.push({
-                                role_id         : sRoleId,
-                                instance_no     : iNo,
-                                field_id        : a.field_id,
-                                new_value       : String(sVal),
-                                source_level    : "ROLE",
-                                prereq_indicator: !!(mPrereqSet[sRoleId] && mPrereqSet[sRoleId][a.field_id])
-                            });
+                            this._pushFieldValueEntries(aCRFieldVals, mSeen, sRoleId, iNo, a, sVal, mPrereqSet);
                         }.bind(this));
                     }.bind(this));
 
@@ -2091,18 +3031,7 @@ sap.ui.define([
                         if (a.status === "SUPPRESS") { return; }
                         var mRoleVals = oFormVals[sRoleId] || {};
                         var sVal = mRoleVals[a.field_id];
-                        if (sVal === undefined || sVal === null || String(sVal).trim() === "") { return; }
-                        var sKey = sRoleId + "|1|" + a.field_id;
-                        if (mSeen[sKey]) { return; }
-                        mSeen[sKey] = true;
-                        aCRFieldVals.push({
-                            role_id         : sRoleId,
-                            instance_no     : 1,
-                            field_id        : a.field_id,
-                            new_value       : String(sVal),
-                            source_level    : "ROLE",
-                            prereq_indicator: !!(mPrereqSet[sRoleId] && mPrereqSet[sRoleId][a.field_id])
-                        });
+                        this._pushFieldValueEntries(aCRFieldVals, mSeen, sRoleId, 1, a, sVal, mPrereqSet);
                     }.bind(this));
                 }
             }.bind(this));

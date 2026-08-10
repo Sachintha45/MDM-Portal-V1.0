@@ -47,7 +47,8 @@
                                                value="{field_id}"
                                                placeholder="{i18n>ph.fieldId}"
                                                editable="{view>/isNew}"
-                                               liveChange=".onFieldChange"/>
+                                               liveChange=".onFieldChange"
+                                               change=".onFieldIdBlur"/>
                                     </VBox>
                                     <VBox>
                                         <Label text="{i18n>lbl.description}" required="true"/>
@@ -97,14 +98,36 @@
                                                placeholder="{i18n>ph.decimals}"
                                                liveChange=".onFieldChange"/>
                                     </VBox>
+                                    <VBox>
+                                        <Label text="{i18n>lbl.grid}"/>
+                                        <Switch id="swGrid"
+                                                state="{grid}"
+                                                customTextOn="Yes"
+                                                customTextOff="No"
+                                                change=".onGridSwitchChange"/>
+                                    </VBox>
+                                    <VBox visible="{grid}">
+                                        <Label text="{i18n>lbl.gridOverview}"/>
+                                        <Switch id="swGridOverview"
+                                                state="{grid_overview}"
+                                                customTextOn="Yes"
+                                                customTextOff="No"
+                                                change=".onFieldChange"/>
+                                    </VBox>
                                  
                                 </layout:content>
                             </layout:Grid>
                         </VBox>
                     </IconTabFilter>
 
-                    <!-- ── TAB 2 · Value Help ── -->
-                    <IconTabFilter text="{i18n>tab.valueHelp}" key="valuehelp" icon="sap-icon://value-help">
+                    <!-- ── TAB 2 · Value Help ──
+                         Hidden for grid fields: display_type/value_table here
+                         describe the field as a single value, which no longer
+                         applies once it's maintained as a grid — see the
+                         Grid Columns tab instead, where each column carries
+                         its own display_type/value_table. -->
+                    <IconTabFilter text="{i18n>tab.valueHelp}" key="valuehelp" icon="sap-icon://value-help"
+                                   visible="{= !${grid} }">
                         <VBox class="sapUiMediumMarginBeginEnd">
                             <Title text="{i18n>tab.valueHelp}" level="H4"
                                    class="sapUiSmallMarginTop sapUiSmallMarginBottom"/>
@@ -315,6 +338,63 @@
                                 </ColumnListItem>
                             </items>
                         </Table>
+                    </IconTabFilter>
+
+                    <!-- ── TAB 7 · Grid Columns ──
+                         Only shown once the Grid switch (General tab) is on.
+                         Table is bound directly to the grid_columns
+                         composition of this field (relative path — no
+                         separate fetch/filter needed, scoped automatically
+                         to this field via the parent context). -->
+                    <IconTabFilter text="{i18n>tab.gridColumns}" key="gridcolumns" icon="sap-icon://grid"
+                                   visible="{grid}" count="{view>/gridColumnCount}">
+                        <VBox class="sapUiMediumMarginBeginEnd">
+                            <Toolbar class="sapUiSmallMarginTop">
+                                <Title text="{i18n>tab.gridColumns}" level="H4"/>
+                                <ToolbarSpacer/>
+                                <Button text="{i18n>btn.add}" icon="sap-icon://add"
+                                        type="Transparent" press=".onAddGridColumn"/>
+                            </Toolbar>
+
+                            <Table id="gridColumnsTable"
+                                   noDataText="No grid columns defined yet."
+                                   fixedLayout="true" alternateRowColors="true"
+                                   items="{
+                                       path: 'grid_columns',
+                                       sorter: {path: 'column_name'},
+                                       parameters: {
+                                           $count: true,
+                                           $$updateGroupId: 'gridColumnsUpdate'
+                                       }
+                                   }">
+                                <columns>
+                                    <Column width="8rem"><Label text="{i18n>col.columnName}" design="Bold"/></Column>
+                                    <Column><Label text="{i18n>col.description}" design="Bold"/></Column>
+                                    <Column width="6rem" hAlign="Center"><Label text="{i18n>col.dataType}" design="Bold"/></Column>
+                                    <Column width="7rem"><Label text="{i18n>col.displayType}" design="Bold"/></Column>
+                                    <Column width="6rem" hAlign="Center"><Label text="{i18n>col.valueTable}" design="Bold"/></Column>
+                                    <Column width="6rem" hAlign="Center"><Label text="{i18n>col.validation}" design="Bold"/></Column>
+                                    <Column width="5rem" hAlign="Center"><Label text="{i18n>lbl.active}" design="Bold"/></Column>
+                                    <Column width="3rem" hAlign="End"/>
+                                </columns>
+                                <items>
+                                    <ColumnListItem type="Active" press=".onGridColumnRowPress">
+                                        <cells>
+                                            <ObjectIdentifier text="{column_name}"/>
+                                            <Text text="{description}" wrapping="false" maxLines="1"/>
+                                            <Text text="{data_type}" wrapping="false"/>
+                                            <Text text="{display_type}" wrapping="false"/>
+                                            <Text text="{= ${value_table_code} ? ${value_table_code} : '—'}" wrapping="false"/>
+                                            <Text text="{= ${validation_code} ? ${validation_code} : '—'}" wrapping="false"/>
+                                            <core:Icon src="{path: 'active', formatter: '.formatGridColActiveIcon'}"
+                                                       color="{path: 'active', formatter: '.formatGridColActiveColor'}"/>
+                                            <Button icon="sap-icon://delete" type="Transparent"
+                                                    tooltip="{i18n>btn.delete}" press=".onDeleteGridColumn"/>
+                                        </cells>
+                                    </ColumnListItem>
+                                </items>
+                            </Table>
+                        </VBox>
                     </IconTabFilter>
 
                 </items>

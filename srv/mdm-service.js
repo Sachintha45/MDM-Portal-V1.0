@@ -1349,6 +1349,12 @@ class MDMPortalService extends cds.ApplicationService {
                             role_id         : fv.role_id          || '',
                             instance_no     : fv.instance_no      || 1,
                             field_field_id  : fv.field_id,
+                            // '' / 0 for ordinary single-value fields; only
+                            // populated when field_id refers to a grid-type
+                            // FieldMaster (fv.column_name / fv.counter come
+                            // from the grid widget row/column the user edited).
+                            column_name     : fv.column_name      || '',
+                            counter         : fv.counter          || 0,
                             old_value       : null,
                             new_value       : String(fv.new_value),
                             source_level    : fv.source_level     || 'ROLE',

@@ -50,6 +50,7 @@ sap.ui.define([
                     { id: "colValueTable",  label: "Value Table" },
                     { id: "colDisplayType", label: "Display Type" },
                     { id: "colValidation",  label: "Validation" },
+                    { id: "colGrid",        label: "Grid" },
                     { id: "colStatus",      label: "Status" }
                 ]
             });
@@ -218,6 +219,15 @@ sap.ui.define([
         },
         formatActiveState: function (vActive) {
             return this._isActive(vActive) ? "Success" : "Error";
+        },
+        // Grid column reuses the same normalisation — 'grid' can arrive in
+        // any of the same shapes ('active' above already had to handle
+        // this: "Yes"/"No", true/false, 1/0, "true"/"false"), so a raw
+        // `${grid} ? 'Yes' : 'No'` expression binding is unsafe: the
+        // non-empty string "false" is truthy in JS and would show "Yes"
+        // for every row regardless of the real value.
+        formatGridText: function (vGrid) {
+            return this._isActive(vGrid) ? "Yes" : "No";
         },
         _isActive: function (vActive) {
             if (typeof vActive === "string") {

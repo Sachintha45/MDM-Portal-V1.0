@@ -187,7 +187,7 @@
                         parameters: {
                             $count: true,
                             $expand: 'main_group,sub_group',
-                           $select: 'field_id,description,data_type,length,display_type,value_table_code,validation_code,active,main_group_group_id,sub_group_group_id,main_group,sub_group'
+                           $select: 'field_id,description,data_type,length,display_type,value_table_code,validation_code,active,grid,main_group_group_id,sub_group_group_id,main_group,sub_group'
                         }
                     }"
                     growing="true"
@@ -269,6 +269,11 @@
                                 importance="Low">
                             <Label text="{i18n>col.validation}" design="Bold"/>
                         </Column>
+                        <Column id="colGrid"
+                                width="4rem" vAlign="Middle" hAlign="Center"
+                                importance="Low">
+                            <Label text="{i18n>col.grid}" design="Bold"/>
+                        </Column>
                         <Column id="colStatus"
                                 width="5rem" vAlign="Middle" hAlign="Center"
                                 importance="High">
@@ -314,6 +319,9 @@
                                 }" wrapping="false"/>
 
                                 <Text text="{= ${validation_code} ? ${validation_code} : '—'}"
+                                      wrapping="false"/>
+
+                                <Text text="{path: 'grid', formatter: '.formatGridText'}"
                                       wrapping="false"/>
 
                                 <!--

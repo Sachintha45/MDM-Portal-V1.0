@@ -108,7 +108,7 @@ sap.ui.define([
 
                 var pFvs = fetchJson(
                     sBase + "/CRFieldValues?$filter=cr_cr_id eq " + sCrKey +
-                    "&$select=cr_cr_id,role_id,instance_no,field_field_id,old_value,new_value,source_level&$top=5000"
+                    "&$select=cr_cr_id,role_id,instance_no,field_field_id,column_name,counter,old_value,new_value,source_level&$top=5000"
                 );
 
                 var pAtts = fetchJson(
@@ -122,8 +122,9 @@ sap.ui.define([
                 );
 
                 var pRoleMeta  = fetchJson(sBase + "/BPRoles?$select=role_id,description&$top=500");
-                var pFieldMeta = fetchJson(sBase + "/FieldMasters?$select=field_id,description,main_group_group_id,sub_group_group_id&$top=2000");
+                var pFieldMeta = fetchJson(sBase + "/FieldMasters?$select=field_id,description,main_group_group_id,sub_group_group_id,grid&$top=2000");
                 var pGroupMeta = fetchJson(sBase + "/FieldGroups?$select=group_id,description,parent_group_id_group_id,sequence,icon&$top=500");
+                var pGridCols  = fetchJson(sBase + "/GridColumns?$select=field_field_id,column_name,description,data_type,display_type&$top=5000");
 
                 var pMyCodes = fetchJson(
                     sBase + "/ReleaseCodeUsers?$filter=user_id eq '" + encodeURIComponent(sUserId) +
@@ -132,7 +133,7 @@ sap.ui.define([
 
                 return Promise.all([
                     pHeader, pSteps, pReleaseCodes, pRoles, pFvs, pAtts,
-                    pDecisions, pRoleMeta, pFieldMeta, pGroupMeta, pMyCodes
+                    pDecisions, pRoleMeta, pFieldMeta, pGroupMeta, pMyCodes, pGridCols
                 ]);
             }).then(function (aRes) {
                 var oCr          = aRes[0];
@@ -146,6 +147,7 @@ sap.ui.define([
                 var aFieldMetaRaw = aRes[8] || [];
                 var aGroupMetaRaw = aRes[9] || [];
                 var aMyCodesRaw  = aRes[10] || [];
+                var aGridColsRaw = aRes[11] || [];
 
                 that._oCr = oCr || {};
                 that._aAllSteps = aSteps;
@@ -165,14 +167,31 @@ sap.ui.define([
                 });
                 that._aCrRoleIds = aRoleIds;
 
-                that._aCrFieldValues = aFvsRaw.map(function (fv) {
-                    return {
-                        role_id  : fv.role_id || "",
-                        field_id : fv.field_field_id || fv.field_id || "",
+                // Grid-type fields (see FieldMaster.grid) save one CRFieldValue
+                // row PER CELL — column_name + counter identify which column
+                // and which row. Split those out into a grouped-by-row map
+                // instead of a flat list, same reasoning/fix as
+                // MyRequestDetail.controller.js's equivalent.
+                that._aCrFieldValues = [];
+                that._mGridRows = {};   // "roleId|fieldId" -> { counter: {column_name: value} }
+                aFvsRaw.forEach(function (fv) {
+                    var sRoleId  = fv.role_id || "";
+                    var sFieldId = fv.field_field_id || fv.field_id || "";
+                    if (fv.column_name) {
+                        var sKey = sRoleId + "|" + sFieldId;
+                        if (!that._mGridRows[sKey]) { that._mGridRows[sKey] = {}; }
+                        var iCounter = fv.counter || 1;
+                        if (!that._mGridRows[sKey][iCounter]) { that._mGridRows[sKey][iCounter] = {}; }
+                        that._mGridRows[sKey][iCounter][fv.column_name] = fv.new_value || "";
+                        return;
+                    }
+                    that._aCrFieldValues.push({
+                        role_id  : sRoleId,
+                        field_id : sFieldId,
                         old_value: fv.old_value || "",
                         new_value: fv.new_value || "",
                         source_level: fv.source_level || ""
-                    };
+                    });
                 });
 
                 that._aAttachments = aAttsRaw.map(function (a) {
@@ -203,9 +222,27 @@ sap.ui.define([
                 aFieldMetaRaw.forEach(function (f) {
                     that._mFieldMeta[f.field_id] = {
                         description: f.description || "",
-                        mainGroup  : f.main_group_group_id || "GD",
-                        subGroup   : f.sub_group_group_id  || ""
+                        // Raw values — mainGroup gets resolved via tree-walk
+                        // below once _mGroupMeta is populated (a field's own
+                        // main_group_group_id doesn't follow its sub-group if
+                        // that sub-group is later re-parented — see the
+                        // matching note in MyRequestDetail.controller.js).
+                        mainGroup  : f.main_group_group_id || "",
+                        subGroup   : f.sub_group_group_id  || "",
+                        grid       : f.grid === true
                     };
+                });
+
+                that._mGridColumns = {};
+                aGridColsRaw.forEach(function (gc) {
+                    var sFid = gc.field_field_id;
+                    if (!that._mGridColumns[sFid]) { that._mGridColumns[sFid] = []; }
+                    that._mGridColumns[sFid].push({
+                        column_name : gc.column_name,
+                        description : gc.description || gc.column_name,
+                        data_type   : gc.data_type,
+                        display_type: gc.display_type
+                    });
                 });
 
                 that._mGroupMeta = {};
@@ -216,6 +253,45 @@ sap.ui.define([
                         sequence   : g.sequence || 99,
                         icon       : g.icon || "sap-icon://form"
                     };
+                });
+
+                // Now that _mGroupMeta is loaded, resolve each field's real
+                // main group by walking up from its sub_group to the current
+                // root, rather than trusting the field's own possibly-stale
+                // main_group_group_id (see the note where _mFieldMeta is
+                // built above).
+                var fnFindRoot = function (sGroupId) {
+                    var sCurrent = sGroupId;
+                    var oSeen = {};
+                    while (that._mGroupMeta[sCurrent] && that._mGroupMeta[sCurrent].parentId && !oSeen[sCurrent]) {
+                        oSeen[sCurrent] = true;
+                        sCurrent = that._mGroupMeta[sCurrent].parentId;
+                    }
+                    return sCurrent;
+                };
+                Object.keys(that._mFieldMeta).forEach(function (sFieldId) {
+                    var oMeta = that._mFieldMeta[sFieldId];
+                    oMeta.mainGroup = oMeta.subGroup
+                        ? fnFindRoot(oMeta.subGroup)
+                        : (oMeta.mainGroup || "GD");
+                });
+
+                // Grid fields have no entries in _aCrFieldValues (every one of
+                // their CRFieldValue rows carried a column_name and went into
+                // _mGridRows instead) — without a representative entry here,
+                // the role/group grouping below would just skip them
+                // entirely. One synthetic entry per (role, grid field) is
+                // enough; _buildDiffRow branches on oFm.grid before it ever
+                // reads old_value/new_value off it.
+                Object.keys(that._mGridRows).forEach(function (sKey) {
+                    var aParts = sKey.split("|");
+                    that._aCrFieldValues.push({
+                        role_id  : aParts[0],
+                        field_id : aParts[1],
+                        old_value: "",
+                        new_value: "",
+                        source_level: ""
+                    });
                 });
 
                 var aMyCodes = aMyCodesRaw.map(function (c) { return c.release_code_release_code_id; });
@@ -520,6 +596,11 @@ sap.ui.define([
 
         _buildDiffRow: function (fv) {
             var oFm = this._mFieldMeta[fv.field_id] || {};
+
+            if (oFm.grid) {
+                return this._buildGridDiffRow(fv, oFm);
+            }
+
             var sLabel = (oFm.description || fv.field_id) + ":";
             var bChanged = fv.old_value !== fv.new_value;
 
@@ -531,6 +612,45 @@ sap.ui.define([
                     new Text({ text: fv.old_value || "\u2014", width: "10rem" }),
                     new Icon({ src: "sap-icon://arrow-right", class: "sapUiTinyMarginBeginEnd" }),
                     new ObjectStatus({ text: fv.new_value || "\u2014", state: bChanged ? "Success" : "None" })
+                ]
+            });
+        },
+
+        // Read-only table for a grid field, reconstructed from the rows
+        // grouped by counter in _mGridRows (see the note above where that's
+        // built) — mirrors MyRequestDetail.controller.js's _buildGridFieldRow.
+        // No old/new diff shown per cell (CRFieldValue doesn't track a
+        // meaningful old_value per grid cell today); this just shows what
+        // was submitted.
+        _buildGridDiffRow: function (fv, oFm) {
+            var aCols = this._mGridColumns[fv.field_id] || [];
+            var oRowsByCounter = this._mGridRows[fv.role_id + "|" + fv.field_id] || {};
+            var aRows = Object.keys(oRowsByCounter)
+                .map(Number)
+                .sort(function (a, b) { return a - b; })
+                .map(function (c) { return oRowsByCounter[c]; });
+
+            var oTable = new Table({
+                noDataText: "(no rows saved)",
+                growing   : false,
+                fixedLayout: false,
+                columns: aCols.map(function (gc) {
+                    return new Column({ header: new Label({ text: gc.description, design: "Bold" }) });
+                }),
+                items: aRows.map(function (oRow) {
+                    return new ColumnListItem({
+                        cells: aCols.map(function (gc) {
+                            return new Text({ text: oRow[gc.column_name] || "\u2014" });
+                        })
+                    });
+                })
+            });
+
+            return new VBox({
+                class: "sapUiTinyMarginBottom",
+                items: [
+                    new Label({ text: (oFm.description || fv.field_id) + ":", design: "Bold" }),
+                    oTable
                 ]
             });
         },

@@ -218,7 +218,14 @@
                                    noDataText="No fields assigned to this group yet."
                                    fixedLayout="true"
                                    alternateRowColors="true"
-                                   items="{assignedFields>/items}">
+                                   groupHeaderFactory=".getFieldGroupHeader"
+                                   items="{
+                                       path: 'assignedFields>/items',
+                                       sorter: [
+                                           {path: 'group_key', group: true},
+                                           {path: 'field_id'}
+                                       ]
+                                   }">
                                 <columns>
                                     <Column width="8rem">
                                         <Label text="{i18n>col.fieldId}" design="Bold"/>
