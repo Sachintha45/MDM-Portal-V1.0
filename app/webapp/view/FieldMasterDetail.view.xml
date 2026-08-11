@@ -106,15 +106,6 @@
                                                 customTextOff="No"
                                                 change=".onGridSwitchChange"/>
                                     </VBox>
-                                    <VBox visible="{grid}">
-                                        <Label text="{i18n>lbl.gridOverview}"/>
-                                        <Switch id="swGridOverview"
-                                                state="{grid_overview}"
-                                                customTextOn="Yes"
-                                                customTextOff="No"
-                                                change=".onFieldChange"/>
-                                    </VBox>
-                                 
                                 </layout:content>
                             </layout:Grid>
                         </VBox>
@@ -363,6 +354,7 @@
                                        path: 'grid_columns',
                                        sorter: {path: 'column_name'},
                                        parameters: {
+                                           $select: 'column_name,description,data_type,length,decimals,display_type,value_table_value_table_id,value_table_code,validation_validation_id,validation_code,source_table,source_field,active',
                                            $count: true,
                                            $$updateGroupId: 'gridColumnsUpdate'
                                        }

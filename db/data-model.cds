@@ -138,14 +138,6 @@ entity FieldMaster : managed {
         source_field    : String(40);
         active          : Boolean      not null default true;
         grid            : Boolean      not null default false;
-        // Only meaningful when grid = true. Explicit admin opt-in for
-        // whether Create BP should build a sibling "<Main Group> Overview"
-        // tab showing this field's first record as a vertical form,
-        // alongside the normal grid table. Deliberately a separate flag
-        // from grid itself — not every grid field needs (or should get)
-        // this second view, so it's asked for specifically rather than
-        // inferred from the field's shape.
-        grid_overview   : Boolean      not null default false;
         grid_columns    : Composition of many GridColumn on grid_columns.field = $self;
 }
 
@@ -558,4 +550,3 @@ annotate ReleaseStrategy with @(title: 'Release Strategy');
 annotate StrategyCharacteristic with @(title: 'Release Criteria');
 annotate BPRole          with @(title: 'BP Role');
 annotate FieldMaster     with @(title: 'Field Master');
-

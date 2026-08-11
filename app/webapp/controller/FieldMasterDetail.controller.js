@@ -191,7 +191,7 @@ sap.ui.define(
           parameters: {
             $select: [
               "field_id", "description", "data_type", "length", "decimals",
-              "display_type", "active", "grid", "grid_overview", "source_table", "source_field",
+              "display_type", "active", "grid", "source_table", "source_field",
               "main_group_group_id", "sub_group_group_id",
               "value_table_value_table_id", "validation_validation_id"
             ].join(","),
@@ -267,7 +267,6 @@ sap.ui.define(
                 display_type: sDefaultDisplayType,
                 active: true,
                 grid: false,
-                grid_overview: false,
                 source_table: "",
                 source_field: "",
               });
@@ -298,7 +297,6 @@ sap.ui.define(
                 display_type: "",
                 active: true,
                 grid: false,
-                grid_overview: false,
                 source_table: "",
                 source_field: "",
               });
@@ -357,17 +355,8 @@ sap.ui.define(
         this._oViewModel.setProperty("/isDirty", true);
       },
 
-      // A field getting an Overview tab in Create BP is a separate,
-      // explicit opt-in (grid_overview) — not inferred automatically from
-      // Grid alone, since not every grid field needs a second view. The
-      // toggle (visible="{grid}" in the view) is how the admin sets it, no
-      // prompt. Switching Grid off clears it too, since it's meaningless
-      // without Grid on.
       onGridSwitchChange: function (oEvent) {
         this.onFieldChange();
-        if (!oEvent.getParameter("state")) {
-          this.byId("swGridOverview").setState(false);
-        }
       },
 
       // ── Tab 2: Grouping ──────────────────────────────────────────
@@ -738,7 +727,6 @@ sap.ui.define(
               display_type: oData.display_type,
               active: false, // new copy starts inactive
               grid: oData.grid,
-              grid_overview: oData.grid_overview,
               source_table: oData.source_table,
               source_field: oData.source_field,
               main_group_group_id: oData.main_group_group_id,

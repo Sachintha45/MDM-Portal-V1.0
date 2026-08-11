@@ -112,19 +112,6 @@ sap.ui.define([
             // memory instead of re-querying the service.
             this._aAllAssignments = [];
 
-            // "<Main Group> Overview" tabs (see _buildTabs/_renderTabsForActiveRole)
-            // are only rebuilt when actually selected, not on every keystroke —
-            // this map (populated fresh on each render pass) holds one refresh
-            // function per such tab's key, and this single listener (attached
-            // once here, not re-attached on every render) is what invokes it.
-            this._mOverviewRefreshers = {};
-            this.byId("cbpTabs").attachSelect(function (oEv) {
-                var sKey = oEv.getParameter("key");
-                if (this._mOverviewRefreshers[sKey]) {
-                    this._mOverviewRefreshers[sKey]();
-                }
-            }.bind(this));
-
             // _loadLookups() is called in _onRouteMatched on every visit,
             // so newly created roles and account groups are always picked up.
 
@@ -1068,9 +1055,9 @@ sap.ui.define([
 
             Promise.all([
                 oModel.bindList("/BPRoleFields", null, [new Sorter("sequence")], [oFilter], {
-                    $expand: "field($select=field_id,description,data_type,display_type,length,source_table,main_group_group_id,sub_group_group_id,grid,grid_overview;" +
+                    $expand: "field($select=field_id,description,data_type,display_type,length,source_table,main_group_group_id,sub_group_group_id,grid;" +
                              "$expand=validation($select=validation_id,function_name,trigger_on,error_message,input_param_1,input_param_2,input_param_3)," +
-                             "grid_columns($select=column_name,description,data_type,display_type,length,source_table;" +
+                             "grid_columns($select=column_name,description,data_type,display_type,length,source_table,value_table_code;" +
                              "$expand=validation($select=validation_id,function_name,trigger_on,error_message,input_param_1,input_param_2,input_param_3)))",
                     $select: "role_role_id,field_field_id,field_status,sequence,read_only,default_value"
                 }).requestContexts(0, Infinity),
@@ -1080,7 +1067,6 @@ sap.ui.define([
                 var oParentOf = aResults[1];
                 this._aAllAssignments = aCtx.map(function (c) {
                     var bGrid = c.getProperty("field/grid") === true;
-                    var bGridOverview = bGrid && c.getProperty("field/grid_overview") === true;
                     var sSub  = c.getProperty("field/sub_group_group_id") || "";
                     // Derived from the live group tree when a sub-group is set
                     // (see _findRootGroup above); only falls back to the
@@ -1113,7 +1099,6 @@ sap.ui.define([
                         // _fieldControl/_pushFieldValueEntries branch on `grid`
                         // to render/save it as such.
                         grid       : bGrid,
-                        gridOverview: bGridOverview,
                         gridColumns: bGrid ? (c.getObject("field/grid_columns") || []).map(function (gc) {
                             return {
                                 column_name : gc.column_name,
@@ -1122,6 +1107,7 @@ sap.ui.define([
                                 display_type: gc.display_type || "INPUT",
                                 length      : gc.length,
                                 source_table: gc.source_table || "",
+                                value_table_code: gc.value_table_code || "",
                                 valFn       : (gc.validation && gc.validation.function_name) || "",
                                 valTrigger  : (gc.validation && gc.validation.trigger_on) || "",
                                 valMsg      : (gc.validation && gc.validation.error_message) || "",
@@ -1241,10 +1227,6 @@ sap.ui.define([
         _renderTabsForActiveRole: function () {
             var oTabs = this.byId("cbpTabs");
             oTabs.destroyItems();
-            // Old entries reference containers that destroyItems() above (or
-            // the previous render pass) already tore down — reset before
-            // this pass repopulates it for whichever Overview tabs it builds.
-            this._mOverviewRefreshers = {};
 
             var sActive = this._oRt.getProperty("/activeRole");
             // Each role in the bar shows only its OWN assigned fields.
@@ -1451,36 +1433,6 @@ sap.ui.define([
                 });
                 this._aMainTabItems.push(oTab);
                 oTabs.addItem(oTab);
-
-                // A sibling "<Main Group> Overview" tab — built only from
-                // fields explicitly opted in via grid_overview on Field
-                // Master (see onGridSwitchChange there), not inferred
-                // automatically from the group's field mix. Shows the first
-                // record of each opted-in field as a plain vertical form
-                // (one column's label+value per row, not a table) —
-                // editable, and bound directly to row 0 of the same
-                // underlying array the main tab's grid table uses, so an
-                // edit in either place is immediately visible in the other.
-                var aOverviewFields = aFields.filter(function (f) { return f.grid && f.gridOverview; });
-                if (aOverviewFields.length) {
-                    var sGrpName = oGrpMeta.description || sMain.replace(/_/g, " ");
-                    var oOverviewContainer = new VBox();
-                    var sOverviewKey = sMain + "__overview";
-                    this._mOverviewRefreshers[sOverviewKey] = function () {
-                        this._refreshMainGroupOverviewContent(aOverviewFields, oOverviewContainer);
-                    }.bind(this);
-                    this._refreshMainGroupOverviewContent(aOverviewFields, oOverviewContainer);
-
-                    var oOverviewTab = new IconTabFilter({
-                        key: sOverviewKey,
-                        text: sGrpName + " Overview",
-                        tooltip: sGrpName + " Overview",
-                        icon: "sap-icon://detail-view",
-                        content: [oOverviewContainer]
-                    });
-                    this._aMainTabItems.push(oOverviewTab);
-                    oTabs.addItem(oOverviewTab);
-                }
             }.bind(this));
 
             this._oRt.setProperty("/preqDisp", iTotal + " field" + (iTotal !== 1 ? "s" : ""));
@@ -2050,6 +2002,7 @@ sap.ui.define([
                     valueHelpOnly: false,      // allow free typing
                     showValueHelp: true,
                     width        : "100%",
+                    maxLength    : f.length || 0,
                     placeholder  : sEntitySet ? "Type or search\u2026" : "Enter value\u2026"
                 });
 
@@ -2378,67 +2331,6 @@ sap.ui.define([
             if (bChanged) { oFormModel.setProperty(sModelPath, aRows); }
         },
 
-        // ── "<Main Group> Overview" tab (all-grid main groups only) ────
-        // One vertical form per grid field in the group, showing/editing
-        // row 0 of each — the first record, laid out as a normal Label-
-        // above-value form (not a table). Bound directly to
-        // form>/values/{role}/{field_id}/0/{column_name}, the same path
-        // the main tab's own grid table reads/writes, via a plain two-way
-        // property binding — no manual get/set needed. Rebuilt on tab
-        // select (see the listener in onInit) rather than only once at
-        // build time, so it reflects a row added after the tab was first
-        // rendered with none — "row 0" being a fixed path means the value
-        // bindings themselves stay live, but whether to show the empty-
-        // state placeholder or the form is decided once per build, so that
-        // part still needs a fresh rebuild to notice a 0-to-1 change.
-        _refreshMainGroupOverviewContent: function (aGridFields, oOuter) {
-            oOuter.destroyItems();
-            aGridFields.forEach(function (f, iFieldIdx) {
-                var sModelPath   = "/values/" + f.role + "/" + f.field_id;
-                var oFormModel   = this.getView().getModel("form");
-                var aRows        = oFormModel.getProperty(sModelPath) || [];
-                var sRowBindPath = "form>" + sModelPath + "/0";
-
-                var oSection = new VBox();
-                oSection.addStyleClass("sapUiSmallMarginBeginEnd");
-                oSection.addStyleClass("sapUiSmallMarginTop");
-                oSection.addStyleClass("sapUiSmallMarginBottom");
-                if (iFieldIdx > 0) { oSection.addStyleClass("mdmGridFieldSection"); }
-
-                oSection.addItem(new Label({ text: f.description, design: "Bold" }));
-
-                if (!aRows.length) {
-                    oSection.addItem(new Text({
-                        text: "No records yet \u2014 add one from the " + f.description + " tab.",
-                        class: "mdmGridFieldRepeatLabel sapUiTinyMarginTop"
-                    }));
-                    oOuter.addItem(oSection);
-                    return;
-                }
-
-                var oDefaultCol = this._findDefaultFlagColumn(f.gridColumns || []);
-                var oForm = new SimpleForm({
-                    editable: true,
-                    layout: "ResponsiveGridLayout",
-                    labelSpanXL: 4, labelSpanL: 4, labelSpanM: 4, labelSpanS: 12,
-                    columnsXL: 1, columnsL: 1, columnsM: 1
-                });
-                (f.gridColumns || []).forEach(function (gc) {
-                    oForm.addContent(new Label({ text: gc.description }));
-                    oForm.addContent(this._gridCellControl(f, gc, sRowBindPath, oDefaultCol));
-                }.bind(this));
-
-                if (aRows.length > 1) {
-                    oSection.addItem(new Text({
-                        text: "Showing the first of " + aRows.length + " records.",
-                        class: "mdmGridFieldRepeatLabel"
-                    }));
-                }
-                oSection.addItem(oForm);
-                oOuter.addItem(oSection);
-            }.bind(this));
-        },
-
         // ── Preview + popup editor (grid fields with > 3 columns) ─────
         // Table shows only the first 4 columns, read-only — tapping a row
         // (or "Add Row") opens _openGridRowDialog with every column instead
@@ -2589,18 +2481,21 @@ sap.ui.define([
             oDialog.open();
         },
 
-        // Resolves a grid column to a lookup entity set the same way
-        // _fieldControl does for a normal field's source_table — a
-        // per-column override (SOURCE_TO_LOOKUP["T005_COUNTRY"]) takes
-        // priority over the plain source_table match, then falls back to
-        // null (plain text input) if nothing matches or source_table isn't
-        // set. Grid columns need their OWN source_table configured on the
-        // Grid Columns tab for this to activate — same requirement normal
-        // fields already have.
+        // Resolves a grid column to a lookup entity set. The Grid Columns
+        // dialog offers two ways to point a column at a value list: picking
+        // a Value Table from the same catalogue normal fields use
+        // (value_table_code, e.g. "T001"), or typing a table name directly
+        // into the free-text Source Table field. Value Table is the
+        // explicit, catalogued assignment, so it takes priority when set;
+        // source_table is the fallback for columns configured the older
+        // way. A per-column override (SOURCE_TO_LOOKUP["T005_COUNTRY"])
+        // still takes priority over the plain match either way, mirroring
+        // _fieldControl's own resolution for a normal field.
         _resolveGridColumnEntitySet: function (gc) {
-            if (!gc.source_table) { return null; }
-            return SOURCE_TO_LOOKUP[gc.source_table + "_" + gc.column_name]
-                || SOURCE_TO_LOOKUP[gc.source_table]
+            var sKey = gc.value_table_code || gc.source_table;
+            if (!sKey) { return null; }
+            return SOURCE_TO_LOOKUP[sKey + "_" + gc.column_name]
+                || SOURCE_TO_LOOKUP[sKey]
                 || null;
         },
 
@@ -2634,6 +2529,7 @@ sap.ui.define([
 
                 var oVhInput = new Input({
                     width: "100%", valueHelpOnly: false, showValueHelp: true,
+                    maxLength: gc.length || 0,
                     placeholder: sEntitySet ? "Type or search\u2026" : "Enter value\u2026"
                 });
                 if (sEntitySet) { this._loadValueList(sEntitySet); }
@@ -2736,6 +2632,7 @@ sap.ui.define([
                 // same as a normal field's equivalent.
                 var oVhInput = new Input({
                     value: sPath, valueHelpOnly: false, showValueHelp: true, width: "100%",
+                    maxLength: gc.length || 0,
                     placeholder: sEntitySet ? "Type or search\u2026" : "Enter value\u2026"
                 });
                 if (sEntitySet) {
@@ -2839,8 +2736,20 @@ sap.ui.define([
                 return;
             }
             this._loadValueList(sEntitySet).then(function (aVals) {
+                // _loadValueList caches and returns the SAME array object on
+                // every call for a given entity set (see _mValueListCache).
+                // Assigning that identical reference to both /allItems and
+                // /items here means a dialog reopened later for an
+                // already-loaded entity set hands the Table a reference it
+                // may have already seen, with nothing new to diff against —
+                // the same JSONModel staleness class of bug already worked
+                // around elsewhere in this file (see the fresh-clone note in
+                // _renderTabsForActiveRole). onFieldVHSearch never hits this
+                // because .filter() always builds a new array; a plain
+                // .slice() copy here gives /items that same guarantee on
+                // every load, not just after a search.
                 this._oFieldVHModel.setProperty("/allItems", aVals);
-                this._oFieldVHModel.setProperty("/items", aVals);
+                this._oFieldVHModel.setProperty("/items", aVals.slice());
                 this._oFieldVHModel.setProperty("/busy", false);
             }.bind(this)).catch(function () {
                 this._oFieldVHModel.setProperty("/busy", false);
