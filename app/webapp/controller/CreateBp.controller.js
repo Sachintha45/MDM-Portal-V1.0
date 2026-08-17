@@ -1055,9 +1055,9 @@ sap.ui.define([
 
             Promise.all([
                 oModel.bindList("/BPRoleFields", null, [new Sorter("sequence")], [oFilter], {
-                    $expand: "field($select=field_id,description,data_type,display_type,length,source_table,main_group_group_id,sub_group_group_id,grid;" +
+                    $expand: "field($select=field_id,description,data_type,display_type,length,source_table,value_table_code,value_table_source,main_group_group_id,sub_group_group_id,grid;" +
                              "$expand=validation($select=validation_id,function_name,trigger_on,error_message,input_param_1,input_param_2,input_param_3)," +
-                             "grid_columns($select=column_name,description,data_type,display_type,length,source_table,value_table_code;" +
+                             "grid_columns($select=column_name,description,data_type,display_type,length,source_table,value_table_code,value_table_source;" +
                              "$expand=validation($select=validation_id,function_name,trigger_on,error_message,input_param_1,input_param_2,input_param_3)))",
                     $select: "role_role_id,field_field_id,field_status,sequence,read_only,default_value"
                 }).requestContexts(0, Infinity),
@@ -1081,7 +1081,17 @@ sap.ui.define([
                         description: c.getProperty("field/description") || c.getProperty("field_field_id"),
                         data_type  : c.getProperty("field/data_type") || "STRING",
                         display    : c.getProperty("field/display_type") || "INPUT",
+                        length     : c.getProperty("field/length") || 0,
                         sourceTable: c.getProperty("field/source_table") || "",
+                        // The Value Table linked to this field, and THAT
+                        // table's own source_table (e.g. selecting the
+                        // "Company Codes" Value Table resolves to T001
+                        // here) — a fallback for fields configured via
+                        // Value Table instead of a manually-typed Source
+                        // Table override. See _fieldControl's sSource
+                        // resolution and _resolveGridColumnEntitySet's
+                        // mirror of this for grid columns.
+                        valueTableSource: c.getProperty("field/value_table_source") || "",
                         mainGroup  : sMain,
                         subGroup   : sSub,
                         status     : c.getProperty("field_status"),
@@ -1108,6 +1118,9 @@ sap.ui.define([
                                 length      : gc.length,
                                 source_table: gc.source_table || "",
                                 value_table_code: gc.value_table_code || "",
+                                // See valueTableSource above — same fallback,
+                                // scoped to this one grid column.
+                                value_table_source: gc.value_table_source || "",
                                 valFn       : (gc.validation && gc.validation.function_name) || "",
                                 valTrigger  : (gc.validation && gc.validation.trigger_on) || "",
                                 valMsg      : (gc.validation && gc.validation.error_message) || "",
@@ -1846,9 +1859,25 @@ sap.ui.define([
         // ── Validation engine ────────────────────────────────────────
         // Runs the function referenced by the ValidationRule linked to a field.
         // Returns null when the value is valid, an error string when it's not.
+        // Checks run in priority order — Required, then Length, then any
+        // custom Validation Rule — and the first one that fails wins. All
+        // three are structural constraints from Field Master itself
+        // (field_status / length / validation), independent of each other,
+        // so this is what makes live typing, blur, and Save/Submit all
+        // agree on the same answer instead of drifting apart.
         _runValidation: function (f, sValue) {
-            if (!f.valFn) { return null; }
             var v = (sValue === undefined || sValue === null) ? "" : String(sValue);
+
+            if (f.status === "REQUIRED" && !v.trim()) {
+                return f.valMsg || "This field is required.";
+            }
+
+            if (f.length && v.length > f.length) {
+                return "Maximum length is " + f.length + " character" + (f.length === 1 ? "" : "s") +
+                       " (entered " + v.length + ").";
+            }
+
+            if (!f.valFn) { return null; }
 
             switch (f.valFn) {
                 case "checkRequired":
@@ -1957,11 +1986,24 @@ sap.ui.define([
                 f.display === "DATEPICKER" ||
                 f.display === "DATE_PICKER" ||
                 f.display === "DATEPICKER") {
-                return new DatePicker({ value: sPath, editable: bEditable, width: "100%" });
+                var oDate = new DatePicker({ value: sPath, editable: bEditable, width: "100%" });
+                if (f.status === "REQUIRED") {
+                    oDate.attachChange(function (oEv) {
+                        var sVal = oEv.getParameter("value");
+                        var sErr = this._runValidation(f, sVal);
+                        oEv.getSource().setValueState(sErr ? "Error" : "None");
+                        oEv.getSource().setValueStateText(sErr || "");
+                    }.bind(this));
+                }
+                return oDate;
             }
 
             if (f.display === "DROPDOWN" || f.display === "SEARCH_HELP") {
-                var sSource    = (this._mFieldSource && this._mFieldSource[f.field_id]) || f.sourceTable;
+                // Falls back to the linked Value Table's own source_table
+                // when this field has no Source Table typed directly — see
+                // _resolveGridColumnEntitySet for the grid-column mirror of
+                // this same fallback and why it's needed.
+                var sSource    = (this._mFieldSource && this._mFieldSource[f.field_id]) || f.sourceTable || f.valueTableSource;
                 // Check per-field override first (handles RF02D, KNVV, KNB1 where
                 // multiple fields share the same source_table but need different lookups)
                 var sEntitySet = SOURCE_TO_LOOKUP[sSource + "_" + f.field_id]
@@ -1989,6 +2031,14 @@ sap.ui.define([
                             });
                         }).catch(function () {});
                     }
+                    if (f.status === "REQUIRED") {
+                        oCombo.attachChange(function (oEv) {
+                            var sVal = oCombo.getSelectedKey() || oEv.getParameter("value") || "";
+                            var sErr = this._runValidation(f, sVal);
+                            oCombo.setValueState(sErr ? "Error" : "None");
+                            oCombo.setValueStateText(sErr || "");
+                        }.bind(this));
+                    }
                     return oCombo;
                 }
 
@@ -2006,6 +2056,19 @@ sap.ui.define([
                     placeholder  : sEntitySet ? "Type or search\u2026" : "Enter value\u2026"
                 });
 
+                // Live required/length check — fires on every keystroke
+                // regardless of whether a value list is configured, so
+                // clearing a required field, or typing/pasting past Field
+                // Master's Length, shows an error immediately.
+                if (f.length || f.status === "REQUIRED") {
+                    oVhInput.attachLiveChange(function (oEv) {
+                        var sVal = oEv.getParameter("value");
+                        var sErr = this._runValidation(f, sVal);
+                        oEv.getSource().setValueState(sErr ? "Error" : "None");
+                        oEv.getSource().setValueStateText(sErr || "");
+                    }.bind(this));
+                }
+
                 if (sEntitySet) {
                     // Pre-load so dialog opens instantly AND so we can validate typed input
                     this._loadValueList(sEntitySet);
@@ -2014,6 +2077,18 @@ sap.ui.define([
                     oVhInput.attachChange(function (oEv) {
                         var sTyped  = (oEv.getParameter("value") || "").trim();
                         var oSrc    = oEv.getSource();
+
+                        // Required/Length violations take priority over the
+                        // entity-list check — don't let "not found in list"
+                        // overwrite a more fundamental error.
+                        var sPreErr = this._runValidation(f, sTyped);
+                        if (sPreErr) {
+                            oSrc.setValueState("Error");
+                            oSrc.setValueStateText(sPreErr);
+                            setTimeout(this._checkAndGateTabs.bind(this), 0);
+                            return;
+                        }
+
                         if (!sTyped) {
                             oSrc.setValueState("None");
                             setTimeout(this._checkAndGateTabs.bind(this), 0);
@@ -2048,7 +2123,12 @@ sap.ui.define([
                 type: f.data_type === "INTEGER" || f.data_type === "DECIMAL" ? "Number" : "Text",
                 maxLength: f.length || 0
             });
-            if (f.valFn && f.valTrigger === "FIELD") {
+            // Attach whenever the field is Required, has a Length to
+            // enforce, OR has a FIELD-triggered Validation Rule — previously
+            // this only fired when a Validation Rule was assigned, so most
+            // fields (just Required, or just a Length) never got any live
+            // feedback at all, only a wall of errors at Save/Submit.
+            if (f.status === "REQUIRED" || f.length || (f.valFn && f.valTrigger === "FIELD")) {
                 oInput.attachLiveChange(function (oEv) {
                     var sVal = oEv.getParameter("value");
                     var sErr = this._runValidation(f, sVal);
@@ -2482,17 +2562,20 @@ sap.ui.define([
         },
 
         // Resolves a grid column to a lookup entity set. The Grid Columns
-        // dialog offers two ways to point a column at a value list: picking
-        // a Value Table from the same catalogue normal fields use
-        // (value_table_code, e.g. "T001"), or typing a table name directly
-        // into the free-text Source Table field. Value Table is the
-        // explicit, catalogued assignment, so it takes priority when set;
-        // source_table is the fallback for columns configured the older
-        // way. A per-column override (SOURCE_TO_LOOKUP["T005_COUNTRY"])
-        // still takes priority over the plain match either way, mirroring
-        // _fieldControl's own resolution for a normal field.
+        // dialog offers two ways to point a column at a value list:
+        // picking a Value Table (e.g. "Company Codes"), or typing a table
+        // name directly into the free-text Source Table override.
+        //
+        // IMPORTANT: value_table_code is the Value Table's own ID (e.g.
+        // "COMPANY_CODE"), NOT a SAP table name — SOURCE_TO_LOOKUP is keyed
+        // by SAP table names like "T001", so value_table_code itself can
+        // never match anything in it. What DOES match is that Value
+        // Table's own `source_table` (COMPANY_CODE -> T001), which the
+        // service now projects separately as value_table_source. A
+        // manually-typed Source Table override still wins when both are
+        // set, same as a normal field's own resolution in _fieldControl.
         _resolveGridColumnEntitySet: function (gc) {
-            var sKey = gc.value_table_code || gc.source_table;
+            var sKey = gc.source_table || gc.value_table_source;
             if (!sKey) { return null; }
             return SOURCE_TO_LOOKUP[sKey + "_" + gc.column_name]
                 || SOURCE_TO_LOOKUP[sKey]
@@ -2533,6 +2616,14 @@ sap.ui.define([
                     placeholder: sEntitySet ? "Type or search\u2026" : "Enter value\u2026"
                 });
                 if (sEntitySet) { this._loadValueList(sEntitySet); }
+                if (gc.length) {
+                    oVhInput.attachLiveChange(function (oEv) {
+                        var sVal = oEv.getParameter("value");
+                        var sErr = this._runValidation(gc, sVal);
+                        oEv.getSource().setValueState(sErr ? "Error" : "None");
+                        oEv.getSource().setValueStateText(sErr || "");
+                    }.bind(this));
+                }
                 oVhInput.attachValueHelpRequest(function () {
                     this._openFieldVHDialog(
                         { field_id: gc.column_name, description: gc.description },
@@ -2547,7 +2638,7 @@ sap.ui.define([
                 type: gc.data_type === "INTEGER" || gc.data_type === "DECIMAL" ? "Number" : "Text",
                 maxLength: gc.length || 0
             });
-            if (gc.valFn && gc.valTrigger === "FIELD") {
+            if (gc.length || (gc.valFn && gc.valTrigger === "FIELD")) {
                 oCtrl.attachLiveChange(function (oEv) {
                     var sVal = oEv.getParameter("value");
                     var sErr = this._runValidation(gc, sVal);
@@ -2635,11 +2726,28 @@ sap.ui.define([
                     maxLength: gc.length || 0,
                     placeholder: sEntitySet ? "Type or search\u2026" : "Enter value\u2026"
                 });
+                if (gc.length) {
+                    oVhInput.attachLiveChange(function (oEv) {
+                        var sVal = oEv.getParameter("value");
+                        var sErr = this._runValidation(gc, sVal);
+                        oEv.getSource().setValueState(sErr ? "Error" : "None");
+                        oEv.getSource().setValueStateText(sErr || "");
+                    }.bind(this));
+                }
                 if (sEntitySet) {
                     this._loadValueList(sEntitySet);
                     oVhInput.attachChange(function (oEv) {
                         var sTyped = (oEv.getParameter("value") || "").trim();
                         var oSrc = oEv.getSource();
+
+                        // Length violation takes priority over the entity-list check.
+                        var sLenErr = this._runValidation(gc, sTyped);
+                        if (sLenErr) {
+                            oSrc.setValueState("Error");
+                            oSrc.setValueStateText(sLenErr);
+                            return;
+                        }
+
                         if (!sTyped) { oSrc.setValueState("None"); return; }
                         var aCached = this._mValueListCache && this._mValueListCache[sEntitySet];
                         if (aCached) {
@@ -2676,7 +2784,7 @@ sap.ui.define([
                 type: gc.data_type === "INTEGER" || gc.data_type === "DECIMAL" ? "Number" : "Text",
                 maxLength: gc.length || 0
             });
-            if (gc.valFn && gc.valTrigger === "FIELD") {
+            if (gc.length || (gc.valFn && gc.valTrigger === "FIELD")) {
                 oCellInput.attachLiveChange(function (oEv) {
                     var sVal = oEv.getParameter("value");
                     var sErr = this._runValidation(gc, sVal);
@@ -2831,13 +2939,24 @@ sap.ui.define([
                 MessageBox.warning("Please select a BP Account Group before saving.");
                 return;
             }
+            // A draft is allowed to be INCOMPLETE (required fields still
+            // empty is fine — that's the point of a draft) but not WRONG —
+            // a value that fails Length or doesn't resolve against its
+            // Value Table is never acceptable, draft or not. Pass false to
+            // skip the required-field check while still running Length and
+            // value-list validation.
+            var aInvalid = this._validateRequired(false);
+            if (aInvalid.length) {
+                MessageBox.warning("Please fix the following before saving:\n\n" + aInvalid.join("\n"));
+                return;
+            }
             this._saveCR(false);
         },
 
         onSaveCreate: function () {
-            var aMissing = this._validateRequired();
+            var aMissing = this._validateRequired(true);
             if (aMissing.length) {
-                MessageBox.warning("Please complete the required fields:\n\n" + aMissing.join("\n"));
+                MessageBox.warning("Please fix the following before submitting:\n\n" + aMissing.join("\n"));
                 return;
             }
             MessageBox.confirm(
@@ -3072,7 +3191,11 @@ sap.ui.define([
             }.bind(this));
         },
 
-        _validateRequired: function () {
+        // bCheckRequired: true for Save & Create (must be complete AND
+        // correct); false for Save Draft (may be incomplete, but whatever
+        // IS filled in must still be correct — Length and value-list
+        // checks always run regardless of this flag).
+        _validateRequired: function (bCheckRequired) {
             var aErrors = [];
             var oAllValues = this.getView().getModel("form").getProperty("/values") || {};
 
@@ -3092,9 +3215,38 @@ sap.ui.define([
                 var sVal = mRoleVals[a.field_id];
                 var sStr = (sVal === undefined || sVal === null) ? "" : String(sVal);
 
-                if (a.status === "REQUIRED" && !sStr.trim()) {
+                if (bCheckRequired && a.status === "REQUIRED" && !sStr.trim()) {
                     aErrors.push("\u2022 " + a.description + " is required.");
                     return;
+                }
+                // Length safety net — grid fields excluded here since their
+                // value is an array of row-objects, not a single string;
+                // each grid cell already enforces its own Length live.
+                if (!a.grid && sStr.trim() && a.length && sStr.length > a.length) {
+                    aErrors.push("\u2022 " + a.description + " exceeds the maximum length of " + a.length + " characters.");
+                    return;
+                }
+                // Value-list safety net — SEARCH_HELP/DROPDOWN fields already
+                // show a live "not found in list" error while typing (see
+                // the attachChange handlers in _fieldControl), but that only
+                // sets the control's visual valueState — nothing was
+                // actually stopping Save & Create from going through with
+                // an invalid value still showing that error on screen. This
+                // re-checks the same cached list at submit time and blocks
+                // the save if the typed value never resolved to a valid
+                // entry.
+                if (!a.grid && sStr.trim()) {
+                    var sEntitySet = this._mFieldEntitySet && this._mFieldEntitySet[a.field_id];
+                    if (sEntitySet && this._mValueListCache && this._mValueListCache[sEntitySet]) {
+                        var sTrimmed = sStr.trim();
+                        var bListValid = this._mValueListCache[sEntitySet].some(function (v) {
+                            return v.code === sTrimmed || (v.text && v.text.toLowerCase() === sTrimmed.toLowerCase());
+                        });
+                        if (!bListValid) {
+                            aErrors.push("\u2022 " + a.description + ": \"" + sTrimmed + "\" was not found in the " + a.description + " list. Use the search icon to pick a valid value.");
+                            return;
+                        }
+                    }
                 }
                 if (a.valFn && a.valTrigger === "SAVE" && sStr.trim()) {
                     var sErr = this._runValidation(a, sVal);

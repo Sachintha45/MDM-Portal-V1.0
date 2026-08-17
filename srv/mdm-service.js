@@ -287,7 +287,32 @@ class MDMPortalService extends cds.ApplicationService {
         // automatically triggers the next stage's approver(s) on approval.
         // Shares its core logic with approveReleaseStep — see
         // _applyStepDecision above.
+        //
+        // This action is marked `@(requires: 'any')` in mdm-service.cds —
+        // deliberately public at the XSUAA layer, because BPA's Connector
+        // step is a technical caller, not a logged-in user, and reliably
+        // getting a client-credentials token to carry a custom app scope
+        // is its own significant setup (see chat for the two paths). The
+        // shared-secret header below is the actual protection for this one
+        // endpoint instead.
         this.on('recordApprovalDecision', async (req) => {
+            // Only enforced once BPA_CALLBACK_SECRET is actually set (e.g.
+            // via `cf set-env mdm-portal-srv BPA_CALLBACK_SECRET ...` in
+            // production) — skipped when unset so local `cds watch` keeps
+            // working without extra setup. Configure the SAME value as a
+            // custom header on BPA's Destination for this callback.
+            const sExpectedSecret = process.env.BPA_CALLBACK_SECRET;
+            if (sExpectedSecret) {
+                const sProvidedSecret = req.http && req.http.req && req.http.req.headers
+                    && req.http.req.headers['x-bpa-callback-secret'];
+                if (sProvidedSecret !== sExpectedSecret) {
+                    console.error('[recordApprovalDecision] Rejected — missing or wrong x-bpa-callback-secret header');
+                    return req.error(401, 'Unauthorized');
+                }
+            } else {
+                console.warn('[recordApprovalDecision] BPA_CALLBACK_SECRET is not set — accepting calls unauthenticated. Set this before going to production.');
+            }
+
             const { cr_id, step_number, decision, comment, actor } = req.data;
             try {
                 const result = await this._applyStepDecision(
@@ -881,6 +906,31 @@ class MDMPortalService extends cds.ApplicationService {
         // Strategy_id/approverEmail were added) before the callback step
         // (still to be built in BPA) can read it back.
         this._triggerApprovalWorkflow = async function (crId, stepNumber, strategyId, approverEmail) {
+            // In-app notification for the approver — written independently
+            // of the BPA call below (own try/catch) so a temporarily broken
+            // destination/BPA definition still leaves a visible, queryable
+            // record that this step is now theirs to act on.
+            try {
+                await cds.db.run(
+                    INSERT.into('mdm.portal.Notification').entries([{
+                        notification_id: uuid(),
+                        cr_cr_id: crId,
+                        event_type: 'ASSIGNED',
+                        recipient: approverEmail,
+                        channel: 'IN_APP',
+                        subject: `Change Request ${crId} — step ${stepNumber} needs your approval`,
+                        body: `You've been assigned to review step ${stepNumber} of change request ${crId}.`,
+                        status: 'SENT',
+                        sent_at: new Date()
+                    }])
+                );
+            } catch (notifyError) {
+                console.error(
+                    `[notify] Failed to write ASSIGNED notification for CR ${crId} step ${stepNumber}:`,
+                    notifyError.message
+                );
+            }
+
             try {
                 await this.workflow.send({
                     method: 'POST',
@@ -1007,6 +1057,8 @@ class MDMPortalService extends cds.ApplicationService {
                 }
             }
 
+            await this._notifyRequesterOfDecision(crId, stepNumber, decision, comment, bFullyApproved);
+
             await this.createAuditLog('CR_RELEASE_STEP', `${crId}#${stepNumber}`, decision, actorId);
 
             return {
@@ -1015,6 +1067,61 @@ class MDMPortalService extends cds.ApplicationService {
                 nextStageTriggered: bTriggeredNextStage,
                 fullyApproved: bFullyApproved
             };
+        };
+
+        // Writes an IN_APP Notification for the CR's requester every time
+        // ANY approver makes a decision on ANY of their steps — this is
+        // what "share the response with the creator of the request" means
+        // in the required flow: the requester hears about each individual
+        // step's outcome as it happens, not just the final approve/reject.
+        // Never throws — same philosophy as _triggerApprovalWorkflow: a
+        // notification failure must never roll back or block the decision
+        // that was already committed to CRReleaseStep/CRHeader above.
+        this._notifyRequesterOfDecision = async function (crId, stepNumber, decision, comment, bFullyApproved) {
+            try {
+                const cr = await SELECT.one.from('mdm.portal.CRHeader').where({ cr_id: crId });
+                if (!cr || !cr.requester) { return; }
+
+                const mEvent = { APPROVE: 'APPROVED', REJECT: 'REJECTED', SEND_BACK: 'SENT_BACK' };
+                const sEvent = mEvent[decision] || 'APPROVED';
+
+                var sSubject, sBody;
+                if (decision === 'REJECT') {
+                    sSubject = `Change Request ${crId} was rejected`;
+                    sBody = `Step ${stepNumber} of your change request ${crId} was rejected.` +
+                        (comment ? ` Comment: ${comment}` : '');
+                } else if (decision === 'SEND_BACK') {
+                    sSubject = `Change Request ${crId} was sent back`;
+                    sBody = `Step ${stepNumber} of your change request ${crId} was sent back for changes.` +
+                        (comment ? ` Comment: ${comment}` : '');
+                } else if (bFullyApproved) {
+                    sSubject = `Change Request ${crId} fully approved`;
+                    sBody = `Your change request ${crId} has been approved by all required approvers.`;
+                } else {
+                    sSubject = `Change Request ${crId} — step ${stepNumber} approved`;
+                    sBody = `Step ${stepNumber} of your change request ${crId} was approved and has moved to the next approver.` +
+                        (comment ? ` Comment: ${comment}` : '');
+                }
+
+                await cds.db.run(
+                    INSERT.into('mdm.portal.Notification').entries([{
+                        notification_id: uuid(),
+                        cr_cr_id: crId,
+                        event_type: sEvent,
+                        recipient: cr.requester,
+                        channel: 'IN_APP',
+                        subject: sSubject,
+                        body: sBody,
+                        status: 'SENT',
+                        sent_at: new Date()
+                    }])
+                );
+            } catch (notifyError) {
+                console.error(
+                    `[notify] Failed to notify requester for CR ${crId} step ${stepNumber}:`,
+                    notifyError.message
+                );
+            }
         };
 
         this.createAuditLog = async function (

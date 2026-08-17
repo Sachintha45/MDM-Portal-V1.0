@@ -23,13 +23,15 @@ service MDMPortalService {
     entity FieldGroups       as projection on portal.FieldGroup;
     entity FieldMasters as projection on portal.FieldMaster {
         *,
-        value_table.value_table_id as value_table_code : String,
+        value_table.value_table_id as value_table_code   : String,
+        value_table.source_table   as value_table_source  : String,
         validation.validation_id   as validation_code  : String,
         grid_columns : redirected to GridColumns
     };
     entity GridColumns as projection on portal.GridColumn {
         *,
-        value_table.value_table_id as value_table_code : String,
+        value_table.value_table_id as value_table_code   : String,
+        value_table.source_table   as value_table_source  : String,
         validation.validation_id   as validation_code  : String
     };
     entity ValueTables as projection on portal.ValueTable;
@@ -288,7 +290,9 @@ service MDMPortalService {
         strategy_id: String;
     };
 
-    // Release/Approve a step in the workflow
+    // Release/Approve a step in the workflow — human decision made inside
+    // the app's own UI, so this is gated by the normal Approver scope.
+    @(requires: 'Approver')
     action approveReleaseStep(
         cr_id: String,
         step_number: Integer,
@@ -305,6 +309,16 @@ service MDMPortalService {
     // an approver's decision in BPA's Inbox actually updates this app's
     // own state and (on approval) automatically notifies the next stage's
     // approver(s). Shares its core logic with approveReleaseStep.
+    //
+    // Deliberately left PUBLIC at the XSUAA layer (`requires: 'any'`)
+    // rather than gated by an app scope. BPA's Connector step is a
+    // technical caller, not a logged-in user — getting a client-credentials
+    // token to reliably carry a custom scope is its own can of worms (see
+    // the handler below for the actual protection: a shared secret header,
+    // checked in code, independent of XSUAA). If a proper OAuth2 scope-based
+    // setup is set up instead, swap this back to a dedicated scope and
+    // remove the header check in the handler.
+    @(requires: 'any')
     action recordApprovalDecision(
         cr_id: String,
         step_number: Integer,
