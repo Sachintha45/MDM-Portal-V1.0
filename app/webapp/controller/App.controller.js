@@ -4,8 +4,9 @@ sap.ui.define([
     "sap/ui/model/Filter",
     "sap/ui/model/FilterOperator",
     "sap/m/MessageToast",
+    "sap/ui/core/Fragment",
     "mdm/portal/util/ApprovalHelper"
-], function (Controller, JSONModel, Filter, FilterOperator, MessageToast, ApprovalHelper) {
+], function (Controller, JSONModel, Filter, FilterOperator, MessageToast, Fragment, ApprovalHelper) {
     "use strict";
 
     // Maps route key → breadcrumb text shown in ShellBar secondTitle
@@ -225,8 +226,94 @@ sap.ui.define([
         },
 
         // ── Notifications ───────────────────────────────────────────────
-        onNotificationsPress: function () {
-            // TODO: open NotificationsPopover
+        // Lazy-loads the popover fragment on first press and caches it —
+        // same pattern used elsewhere in this app for on-demand dialogs.
+        // Maps event_type -> NotificationListItem priority purely for the
+        // colored accent bar (REJECTED reads as more urgent than APPROVED),
+        // and formats createdAt into something readable. No read/unread
+        // tracking — see the fragment's own comment for why.
+        onNotificationsPress: function (oEvent) {
+            var oView = this.getView();
+            if (this._pNotificationsPopover) {
+                this._loadNotifications();
+                this._pNotificationsPopover.then(function (oPopover) {
+                    oPopover.openBy(this.byId("shellBar"));
+                }.bind(this));
+                return;
+            }
+            this._pNotificationsPopover = Fragment.load({
+                id: oView.getId(),
+                name: "mdm.portal.view.Fragment.NotificationsPopover",
+                controller: this
+            }).then(function (oPopover) {
+                oView.addDependent(oPopover);
+                oPopover.setModel(new JSONModel({ items: [] }), "notif");
+                this._loadNotifications();
+                oPopover.openBy(this.byId("shellBar"));
+                return oPopover;
+            }.bind(this));
+        },
+
+        _loadNotifications: function () {
+            var oModel = this.getOwnerComponent().getModel();
+            ApprovalHelper.getCurrentUserId(oModel)
+                .then(function (sUserId) {
+                    return ApprovalHelper.getMyNotifications(oModel, sUserId, 20);
+                })
+                .then(function (aRows) {
+                    var mPriority = {
+                        REJECTED  : "High",
+                        SENT_BACK : "Medium",
+                        ASSIGNED  : "Medium",
+                        APPROVED  : "Low",
+                        ESCALATED : "High",
+                        POSTED    : "Low",
+                        POSTING_FAILED: "High"
+                    };
+                    var aItems = aRows.map(function (n) {
+                        return {
+                            notification_id: n.notification_id,
+                            cr_id       : n.cr_cr_id || "",
+                            subject     : n.subject || "",
+                            body        : n.body || "",
+                            priority    : mPriority[n.event_type] || "None",
+                            displayDate : this._formatNotificationDate(n.sent_at || n.createdAt)
+                        };
+                    }.bind(this));
+                    this._pNotificationsPopover.then(function (oPopover) {
+                        oPopover.getModel("notif").setProperty("/items", aItems);
+                    });
+                }.bind(this))
+                .catch(function (oErr) {
+                    console.warn("Could not load notifications", oErr);
+                });
+        },
+
+        _formatNotificationDate: function (vDate) {
+            if (!vDate) { return ""; }
+            var oDate = new Date(vDate);
+            if (isNaN(oDate.getTime())) { return ""; }
+            var iDiffMs = Date.now() - oDate.getTime();
+            var iDiffMin = Math.round(iDiffMs / 60000);
+            if (iDiffMin < 1) { return "just now"; }
+            if (iDiffMin < 60) { return iDiffMin + " min ago"; }
+            var iDiffHr = Math.round(iDiffMin / 60);
+            if (iDiffHr < 24) { return iDiffHr + " hr ago"; }
+            var iDiffDay = Math.round(iDiffHr / 24);
+            if (iDiffDay < 7) { return iDiffDay + " day" + (iDiffDay === 1 ? "" : "s") + " ago"; }
+            return oDate.toLocaleDateString();
+        },
+
+        // Clicking a notification takes you to the related CR — same
+        // detail page whether the notification was an assignment or a
+        // decision, since Notification doesn't carry step_number to route
+        // straight into a specific approval step.
+        onNotificationItemPress: function (oEvent) {
+            var oCtx = oEvent.getSource().getBindingContext("notif");
+            var sCrId = oCtx && oCtx.getProperty("cr_id");
+            this._pNotificationsPopover.then(function (oPopover) { oPopover.close(); });
+            if (!sCrId) { return; }
+            this.getOwnerComponent().getRouter().navTo("myRequestDetail", { crId: sCrId });
         },
         onExit: function () {
             if (this._oClipPathObserver) {

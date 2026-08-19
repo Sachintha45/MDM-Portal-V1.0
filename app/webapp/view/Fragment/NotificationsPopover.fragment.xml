@@ -1,0 +1,42 @@
+<core:FragmentDefinition
+    xmlns:core="sap.ui.core"
+    xmlns="sap.m">
+
+    <!--
+        ShellBar notifications popover — shows the logged-in user's recent
+        Notification records (written server-side by _triggerApprovalWorkflow
+        on assignment, and _notifyRequesterOfDecision on approve/reject/send
+        back). This is an activity LOG, distinct from the ShellBar badge
+        count itself (bound to /pendingApprovals — what still needs action).
+
+        Known limitation: the Notification entity has no read/unread flag,
+        so every item renders the same way — there's no "N unread" concept
+        yet. Would need a schema addition (e.g. read_at) to support that.
+    -->
+    <ResponsivePopover id="notificationsPopover"
+                        title="Notifications"
+                        placement="Bottom"
+                        contentWidth="26rem"
+                        contentHeight="30rem"
+                        showHeader="true">
+        <content>
+            <List id="notificationsList"
+                  items="{notif>/items}"
+                  noDataText="No notifications yet"
+                  growing="true"
+                  growingThreshold="20"
+                  class="sapUiNoContentPadding">
+                <items>
+                    <NotificationListItem
+                        title="{notif>subject}"
+                        description="{notif>body}"
+                        datetime="{notif>displayDate}"
+                        priority="{notif>priority}"
+                        showButtons="false"
+                        showCloseButton="false"
+                        press=".onNotificationItemPress"/>
+                </items>
+            </List>
+        </content>
+    </ResponsivePopover>
+</core:FragmentDefinition>

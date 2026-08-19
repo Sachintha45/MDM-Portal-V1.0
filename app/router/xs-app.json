@@ -4,6 +4,13 @@
   "sessionTimeout": 60,
   "routes": [
     {
+      "source": "^/odata/v4/mdmportal/recordApprovalDecision$",
+      "target": "/odata/v4/mdmportal/recordApprovalDecision",
+      "destination": "srv-api",
+      "authenticationType": "none",
+      "csrfProtection": false
+    },
+    {
       "source": "^/odata/(.*)$",
       "target": "/odata/$1",
       "destination": "srv-api",

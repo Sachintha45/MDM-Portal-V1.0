@@ -815,6 +815,7 @@ class MDMPortalService extends cds.ApplicationService {
                             step_number: step.step_number,
                             sequence_within_step: 1,
                             release_code_release_code_id: step.release_code_release_code_id,
+                            parallel: step.parallel || false,
                             status: 'PENDING',
                         },
                     ])
@@ -930,6 +931,7 @@ class MDMPortalService extends cds.ApplicationService {
                     notifyError.message
                 );
             }
+
 
             try {
                 await this.workflow.send({

@@ -454,6 +454,12 @@ entity CRReleaseStep : managed {
     key step_number             : Integer not null;
     key sequence_within_step    : Integer not null default 1;
         release_code            : Association to ReleaseCode not null;
+        // Copied from ReleaseStrategyStep.parallel at snapshot time (see
+        // createReleaseStrategySnapshot) — this is what
+        // _computeApprovalStages actually groups stages by. Without this
+        // field, every step silently defaults to sequential regardless of
+        // how the Release Strategy itself was configured.
+        parallel                : Boolean not null default false;
         assigned_to             : String(80);
         status                  : StepStatus not null;
         due_at                  : Timestamp;
