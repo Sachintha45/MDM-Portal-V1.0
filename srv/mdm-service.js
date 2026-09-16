@@ -938,7 +938,7 @@ class MDMPortalService extends cds.ApplicationService {
                     method: 'POST',
                     path: '/public/workflow/rest/v1/workflow-instances',
                     data: {
-                        definitionId: 'us10.mdm-portal-nd2mtjke.mdmportalapproval.cR_Approval',
+                        definitionId:'us10.intellectdev-fhnkjclj.crapproval2.cR_Approval',
                         context: {
                             cr_id: crId,
                             step_number: stepNumber,
@@ -949,11 +949,24 @@ class MDMPortalService extends cds.ApplicationService {
                 });
                 console.log(`[workflow] Started BPA workflow instance for CR ${crId}, step ${stepNumber} (approver: ${approverEmail})`);
             } catch (workflowError) {
+                // The SAP Cloud SDK wraps the REAL reason several .cause
+                // layers deep under a generic top-level message ("Failed to
+                // load destination") — logging workflowError.message alone
+                // (the old behavior) hides exactly the detail we need to
+                // actually diagnose this. Walk the full chain instead.
+                var aCauseChain = [];
+                var eWalk = workflowError;
+                var iGuard = 0;
+                while (eWalk && iGuard < 10) {
+                    aCauseChain.push(eWalk.message || String(eWalk));
+                    eWalk = eWalk.cause;
+                    iGuard++;
+                }
                 console.error(
                     `[workflow] Failed to start BPA workflow for ${crId} step ${stepNumber}:`,
-                    workflowError.message,
-                    workflowError.response?.status,
-                    workflowError.response?.data
+                    'full cause chain: ' + aCauseChain.join(' \u2192 caused by \u2192 '),
+                    'HTTP status:', workflowError.response?.status,
+                    'HTTP data:', workflowError.response?.data
                 );
             }
         };
