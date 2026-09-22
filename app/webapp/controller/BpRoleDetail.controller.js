@@ -32,6 +32,11 @@ sap.ui.define([
             this.getView().setModel(new JSONModel({ items: [] }), "prereq");
             this.getView().setModel(new JSONModel({ items: [] }), "prereqroles");
 
+            // Field assignments picked while creating a new role, before it
+            // has a real role_id to attach them to on the backend — see
+            // onAssignFields / _addStagedFields / _persistPendingFields.
+            this._aPendingFields = [];
+
             this._loadLookups();
 
             var oRouter = this.getOwnerComponent().getRouter();
@@ -97,6 +102,7 @@ sap.ui.define([
             this.getView().getModel("assigned").setProperty("/items", []);
             this.getView().getModel("prereq").setProperty("/items", []);
             this.getView().getModel("prereqroles").setProperty("/items", []);
+            this._aPendingFields = [];
             this._oViewModel.setProperty("/fieldCount", "0");
             this._oViewModel.setProperty("/prereqCount", "0");
             this._oViewModel.setProperty("/prereqRolesCount", "0");
@@ -282,6 +288,15 @@ sap.ui.define([
 
         // ── Field Assignment tab ─────────────────────────────────────
         _loadAssignedFields: function () {
+            // A new, unsaved role has nothing on the backend to load yet —
+            // its "assigned" items are whatever's staged in _aPendingFields,
+            // already rendered by _addStagedFields/_refreshAssignedFromPending.
+            // Without this guard, once a Role Name has been typed in (so
+            // _roleId() below is no longer empty), switching to this tab
+            // would query the backend for that not-yet-existent role_id,
+            // get nothing back, and wipe out the staged fields.
+            if (this._oViewModel.getProperty("/isNew")) { return; }
+
             var sRole = this._roleId();
             if (!sRole) { return; }
             var oModel = this.getOwnerComponent().getModel();
@@ -363,6 +378,85 @@ sap.ui.define([
             }.bind(this)).catch(function (e) {
                 MessageBox.error("Could not load assigned fields: " + e.message);
             });
+        },
+
+        // ── Field Assignment tab — staged mode (new, unsaved role) ────
+        // A brand-new role has no role_id yet, so field picks made before
+        // the first Save can't be posted to /BPRoleFields — there's nothing
+        // for them to point at. Instead they're kept here, in memory, in
+        // exactly the shape _loadAssignedFields would have produced, so the
+        // same "assigned" table/grouping/row-press logic works unchanged
+        // whether the role is new or already saved. _persistPendingFields
+        // creates them for real once Save gives the role an actual role_id.
+        _addStagedFields: function (aNewRows) {
+            this._getGroupParentMap().then(function (oParentOf) {
+                var aMapped = aNewRows.map(function (o) {
+                    var sSub  = o.sub_group || "";
+                    var sMain = sSub ? this._findRootGroup(sSub, oParentOf) : (o.main_group || "");
+                    return {
+                        field_id       : o.field_id,
+                        description    : o.description || "",
+                        data_type      : o.data_type    || "",
+                        display_type   : o.display_type || "",
+                        main_group     : sMain,
+                        sub_group      : sSub,
+                        group_key      : sMain + "||" + sSub,
+                        group_path     : sMain + (sSub && sSub !== sMain ? " ▸ " + sSub : ""),
+                        field_status   : o.field_status,
+                        sequence       : o.sequence,
+                        default_value  : "",
+                        read_only      : false,
+                        is_prerequisite: false
+                    };
+                }.bind(this));
+
+                this._aPendingFields = (this._aPendingFields || []).concat(aMapped);
+                this._refreshAssignedFromPending();
+                this._oViewModel.setProperty("/isDirty", true);
+                MessageToast.show(aNewRows.length + " field(s) added — they'll be saved with the role.");
+            }.bind(this));
+        },
+
+        _refreshAssignedFromPending: function () {
+            var aItems = (this._aPendingFields || []).slice();
+            this.getView().getModel("assigned").setProperty("/items", aItems);
+            this._oViewModel.setProperty("/fieldCount", String(aItems.length));
+            this._applyFieldTableGrouping();
+        },
+
+        _removeStagedField: function (oRowData) {
+            var aPending = this._aPendingFields || [];
+            var iIdx = aPending.indexOf(oRowData);
+            if (iIdx === -1) {
+                iIdx = aPending.findIndex(function (o) { return o.field_id === oRowData.field_id; });
+            }
+            if (iIdx !== -1) { aPending.splice(iIdx, 1); }
+            this._refreshAssignedFromPending();
+            MessageToast.show("Field removed.");
+        },
+
+        // Creates the staged field assignments for real, now that the role
+        // has an actual role_id. Called from onSave right after the role
+        // itself is confirmed created.
+        _persistPendingFields: function (sRoleId) {
+            var aPending = this._aPendingFields || [];
+            if (!aPending.length) { return Promise.resolve(); }
+
+            var oModel = this.getOwnerComponent().getModel();
+            var oListBinding = oModel.bindList("/BPRoleFields", null, [], [], {
+                $$updateGroupId: "bpRoleFieldsCreate"
+            });
+            aPending.forEach(function (oRow) {
+                oListBinding.create({
+                    role_role_id  : sRoleId,
+                    field_field_id: oRow.field_id,
+                    field_status  : oRow.field_status,
+                    sequence      : oRow.sequence,
+                    default_value : oRow.default_value || null,
+                    read_only     : !!oRow.read_only
+                });
+            });
+            return oModel.submitBatch("bpRoleFieldsCreate");
         },
 
         // Apply group header rows to the Field Assignment table by
@@ -502,11 +596,17 @@ sap.ui.define([
 
         onRemoveAssignedField: function (oEvent) {
             var oCtx     = oEvent.getSource().getBindingContext("assigned");
-            var sFieldId = oCtx.getProperty("field_id");
+            var oRowData = oCtx.getObject();
+            var sFieldId = oRowData.field_id;
+            var bIsNew   = this._oViewModel.getProperty("/isNew");
             MessageBox.confirm("Remove \u201c" + sFieldId + "\u201d from this role's Field Assignment?", {
                 title  : "Remove Field",
                 onClose: function (sAction) {
                     if (sAction !== MessageBox.Action.OK) { return; }
+                    if (bIsNew) {
+                        this._removeStagedField(oRowData);
+                        return;
+                    }
                     this._deleteJunctionRow({
                         collection: "/BPRoleFields",
                         keys      : { role_role_id: this._roleId(), field_field_id: sFieldId },
@@ -578,12 +678,25 @@ sap.ui.define([
 
         // ── Row navigation ───────────────────────────────────────────
         onFieldRowPress: function (oEvent) {
-            var sFieldId = oEvent.getSource().getBindingContext("assigned").getProperty("field_id");
+            var oRowData = oEvent.getSource().getBindingContext("assigned").getObject();
+            if (this._oViewModel.getProperty("/isNew")) {
+                // Still a staged (unsaved) assignment — edit the in-memory
+                // row directly rather than an OData context that doesn't
+                // exist on the backend yet.
+                this._openFieldAssignmentEdit({
+                    stageOnly   : true,
+                    pendingRow  : oRowData,
+                    showReadOnly: true,
+                    onDone      : this._refreshAssignedFromPending.bind(this),
+                    onRemove    : this._removeStagedField.bind(this, oRowData)
+                });
+                return;
+            }
             this._openFieldAssignmentEdit({
                 collection   : "/BPRoleFields",
                 fkName       : "role_role_id",
                 fkValue      : this._roleId(),
-                fieldId      : sFieldId,
+                fieldId      : oRowData.field_id,
                 updateGroupId: "bpRoleUpdate",
                 showReadOnly : true,
                 onDone       : this._loadAssignedFields.bind(this)
@@ -608,16 +721,31 @@ sap.ui.define([
 
         // ── Add actions (stubs that point to where dialogs would go) ─
         onAssignFields: function () {
-            var sRole = this._roleId();
-            if (!sRole) { MessageToast.show("Save the role first."); return; }
             var aItems = this.getView().getModel("assigned").getProperty("/items") || [];
             var iMaxSeq = aItems.reduce(function (m, o) {
                 return Math.max(m, parseInt(o.sequence, 10) || 0);
             }, 0);
+
+            if (this._oViewModel.getProperty("/isNew")) {
+                // No role_id exists on the backend yet for these to point
+                // at — stage the picks locally instead; _persistPendingFields
+                // creates them for real once the role itself is saved.
+                this._openAssignFields({
+                    collection   : "/BPRoleFields",
+                    stageOnly    : true,
+                    assignedIds  : aItems.map(function (o) { return o.field_id; }),
+                    maxSequence  : iMaxSeq,
+                    includeStatus: true,
+                    dialogTitle  : "Assign Fields",
+                    onDone       : this._addStagedFields.bind(this)
+                });
+                return;
+            }
+
             this._openAssignFields({
                 collection   : "/BPRoleFields",
                 fkName       : "role_role_id",
-                fkValue      : sRole,
+                fkValue      : this._roleId(),
                 updateGroupId: "bpRoleUpdate",
                 assignedIds  : aItems.map(function (o) { return o.field_id; }),
                 maxSequence  : iMaxSeq,
@@ -794,12 +922,47 @@ sap.ui.define([
                     return false;
                 })
                 .then(function (bWasCreated) {
+                    // A newly-created role may have fields staged locally —
+                    // picked before the role had a real role_id to attach
+                    // them to (see onAssignFields / _addStagedFields).
+                    // Persist those for real now.
+                    if (bWasCreated && this._aPendingFields && this._aPendingFields.length) {
+                        return this._persistPendingFields(sId)
+                            .then(function () { return { created: true, fieldsFailed: false }; })
+                            .catch(function (oErr) { return { created: true, fieldsFailed: true, fieldsError: oErr }; });
+                    }
+                    return { created: bWasCreated, fieldsFailed: false };
+                }.bind(this))
+                .then(function (oResult) {
                     this._oViewModel.setProperty("/busy",    false);
                     this._oViewModel.setProperty("/isDirty", false);
-                    MessageToast.show("Role saved successfully.");
-                    if (bWasCreated) {
+
+                    if (oResult.created && oResult.fieldsFailed) {
+                        // The role itself saved fine — only the staged field
+                        // assignments failed. Stay on the page (it now
+                        // represents the real, saved role) instead of
+                        // navigating away, so nothing is silently lost; the
+                        // user can re-add them with the normal flow.
+                        this._aPendingFields = [];
+                        this._oCreateListBinding = null;
+                        this._oViewModel.setProperty("/isNew", false);
+                        this._loadAssignedFields();
+                        MessageBox.warning(
+                            "Role saved, but the field assignments could not be saved: " +
+                            ((oResult.fieldsError && oResult.fieldsError.message) || "Unknown error") +
+                            "\n\nPlease re-add them below."
+                        );
+                        return;
+                    }
+
+                    MessageToast.show(oResult.created
+                        ? "Role and its field assignments saved successfully."
+                        : "Role saved successfully.");
+
+                    if (oResult.created) {
                         // Delay slightly so the toast actually paints before the
                         // route change tears the page down.
+                        this._aPendingFields = [];
                         this._oCreateListBinding = null;
                         setTimeout(this.onNavBack.bind(this), 300);
                     } else if (oCtx) {
@@ -818,6 +981,7 @@ sap.ui.define([
             var fnGoBack = function () {
                 this.getOwnerComponent().getModel().resetChanges("bpRoleUpdate");
                 this._oViewModel.setProperty("/isDirty", false);
+                this._aPendingFields = [];
                 this.onNavBack();
             }.bind(this);
             if (this._oViewModel.getProperty("/isDirty")) {
@@ -851,6 +1015,9 @@ sap.ui.define([
                 // setBindingContext, otherwise the copy never appears.
                 this.getView().unbindObject();
                 this.getView().setBindingContext(oNewCtx);
+                this._aPendingFields = [];
+                this.getView().getModel("assigned").setProperty("/items", []);
+                this._oViewModel.setProperty("/fieldCount", "0");
                 this._oViewModel.setProperty("/isNew",   true);
                 this._oViewModel.setProperty("/isDirty", true);
                 this.byId("selMDT").setSelectedIndex(this.formatScopeIndex(oData.account_scope || "CUSTOMER"));

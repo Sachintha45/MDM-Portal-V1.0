@@ -82,7 +82,7 @@ sap.ui.define([
             return oModel.bindList("/FieldMasters", null, [new Sorter("field_id")], [
                 new Filter("active", FilterOperator.EQ, true)
             ], {
-                $select: "field_id,description,data_type,main_group_group_id,sub_group_group_id"
+                $select: "field_id,description,data_type,display_type,main_group_group_id,sub_group_group_id"
             }).requestContexts(0, Infinity).then(function (aCtx) {
                 var aAll = aCtx
                     .filter(function (c) { return !oAssigned[c.getProperty("field_id")]; })
@@ -90,10 +90,23 @@ sap.ui.define([
                         var sMain = c.getProperty("main_group_group_id") || "";
                         var sSub  = c.getProperty("sub_group_group_id") || "";
                         return {
-                            field_id   : c.getProperty("field_id"),
-                            description: c.getProperty("description") || "",
-                            data_type  : c.getProperty("data_type") || "",
-                            group_path : (sMain + (sSub && sSub !== sMain ? " \u25b8 " + sSub : "")) || "\u2014"
+                            field_id    : c.getProperty("field_id"),
+                            description : c.getProperty("description") || "",
+                            data_type   : c.getProperty("data_type") || "",
+                            display_type: c.getProperty("display_type") || "",
+                            // Raw group FKs, kept alongside the combined display
+                            // path \u2014 a staging (not-yet-saved parent) caller
+                            // needs these to derive the same group_key/root
+                            // group a persisted reload would produce.
+                            main_group  : sMain,
+                            sub_group   : sSub,
+                            group_path  : (sMain + (sSub && sSub !== sMain ? " \u25b8 " + sSub : "")) || "\u2014",
+                            // Selection lives on the row object itself (bound
+                            // two-way to ColumnListItem's "selected") rather
+                            // than in the Table's own index-based selection
+                            // state, so it survives /availableFields being
+                            // swapped out by a search filter.
+                            selected    : false
                         };
                     });
                 oDlgModel.setProperty("/allFields", aAll);
@@ -119,8 +132,14 @@ sap.ui.define([
         },
 
         onAssignFieldsConfirm: function () {
-            var oTable = Fragment.byId(this.getView().getId(), "dlgFieldsTable");
-            var aSelected = oTable.getSelectedItems();
+            var oDlgModel = this.getView().getModel("dlg");
+            // Read selection off the row data itself (see the "selected" flag
+            // set in _loadAvailableFields / bound in the fragment), not off
+            // the Table's own getSelectedItems() — that tracks selection by
+            // list position, which drifts out of sync with the actual field
+            // once a search has swapped /availableFields for a filtered array.
+            var aAllFields = oDlgModel.getProperty("/allFields") || [];
+            var aSelected  = aAllFields.filter(function (o) { return o.selected; });
             if (!aSelected.length) {
                 MessageToast.show("Select at least one field.");
                 return;
@@ -131,16 +150,45 @@ sap.ui.define([
             var sStatus = bStatus
                 ? Fragment.byId(this.getView().getId(), "dlgDefaultStatus").getSelectedKey()
                 : null;
+
+            // Determine a starting sequence (max existing + 10), stepping by 10
+            var iSeq = ((oCfg.maxSequence || 0) + 10);
+
+            // Staged mode: the parent record (e.g. a not-yet-saved BP Role)
+            // has no real key yet for these rows to point at — don't touch
+            // the backend at all. Just hand the picked rows back to the
+            // caller, which folds them into its own in-memory list and
+            // creates them for real once the parent itself has been saved.
+            if (oCfg.stageOnly) {
+                var aStaged = aSelected.map(function (oCtxData) {
+                    var oRow = {
+                        field_id    : oCtxData.field_id,
+                        description : oCtxData.description,
+                        data_type   : oCtxData.data_type,
+                        display_type: oCtxData.display_type,
+                        main_group  : oCtxData.main_group,
+                        sub_group   : oCtxData.sub_group,
+                        sequence    : iSeq
+                    };
+                    if (bStatus) { oRow.field_status = sStatus; }
+                    if (typeof oCfg.extraProps === "function") {
+                        var oExtraStaged = oCfg.extraProps(oRow.field_id, sStatus, iSeq) || {};
+                        Object.keys(oExtraStaged).forEach(function (k) { oRow[k] = oExtraStaged[k]; });
+                    }
+                    iSeq += 10;
+                    return oRow;
+                });
+                this._oAssignDialog.close();
+                if (typeof oCfg.onDone === "function") { oCfg.onDone(aStaged); }
+                return;
+            }
+
             var oModel  = this.getOwnerComponent().getModel();
             var oListBinding = oModel.bindList(oCfg.collection, null, [], [], {
                 $$updateGroupId: oCfg.updateGroupId
             });
 
-            // Determine a starting sequence (max existing + 10), stepping by 10
-            var iSeq = ((oCfg.maxSequence || 0) + 10);
-
-            aSelected.forEach(function (oItem) {
-                var oCtxData = oItem.getBindingContext("dlg").getObject();
+            aSelected.forEach(function (oCtxData) {
                 var sFieldId = oCtxData.field_id;
 
                 var oRow = {};

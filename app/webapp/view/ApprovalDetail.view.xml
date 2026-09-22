@@ -35,22 +35,18 @@
                     <HBox id="releaseProgressBox" class="sapUiSmallMarginBottom"/>
                 </ScrollContainer>
 
-                <!-- ── Scope banner ─────────────────────────────────────── -->
-                <Panel id="scopeBannerPanel" class="sapUiSmallMarginBottom"
-                       backgroundDesign="Solid">
-                    <content>
-                        <HBox alignItems="Center" class="sapUiSmallMargin">
-                            <core:Icon src="sap-icon://target-group" size="1.5rem"
-                                       class="sapUiSmallMarginEnd" color="Default"/>
-                            <VBox>
-                                <Text id="scopeTitle" text="{view>/scopeTitle}" class="mdmScopeTitle"/>
-                                <Text id="scopeSubtitle" text="{view>/scopeSubtitle}"/>
-                            </VBox>
-                        </HBox>
-                    </content>
-                </Panel>
+                <!-- ── Role switcher (mirrors My Requests / Create BP ACTIVE ROLE bar) ──
+                     Field values are grouped exactly the way the requester filled
+                     them in: pick a role here, its Field-Group tabs render below. ── -->
+                <Label text="ACTIVE ROLE" class="sapUiTinyMarginBottom mdmRoleBarLabel"
+                       visible="{= ${view>/roleCount} > 1 }"/>
+                <SegmentedButton id="approvalRoleBar"
+                                 width="100%"
+                                 visible="{= ${view>/roleCount} > 1 }"
+                                 select=".onApprovalRoleChange"
+                                 class="sapUiSmallMarginBottom"/>
 
-                <!-- ── Tabs: General / per-role / Attachments / History ─── -->
+                <!-- ── Tabs: General / active role's Field Groups / Attachments / History ─── -->
                 <IconTabBar id="approvalTabs" expanded="true"
                             class="sapUiResponsiveContentPadding"/>
 
@@ -60,8 +56,7 @@
         <footer>
             <OverflowToolbar>
                 <ToolbarSpacer/>
-                <Button id="btnSendBack" text="Send Back" icon="sap-icon://redo"
-                        visible="{view>/actionable}" press=".onSendBack"/>
+              
                 <Button id="btnReject"   text="Reject"    icon="sap-icon://decline"
                         type="Reject"
                         visible="{view>/actionable}" press=".onReject"/>

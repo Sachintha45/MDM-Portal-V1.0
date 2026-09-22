@@ -18,8 +18,13 @@
                     <core:Icon src="sap-icon://form" size="1.25rem" color="Default"
                                class="sapUiTinyMarginEnd"/>
                     <Title text="{fieldEdit>/field_id}" level="H4" wrapping="false"/>
-                    <Text text=" \u2014 {fieldEdit>/description}" class="sapUiTinyMarginBegin" wrapping="false"/>
+                    <Text text="{= ' ' + '\u2014' + ' ' + (${fieldEdit>/description} || '') }" class="sapUiTinyMarginBegin" wrapping="false"/>
                 </HBox>
+
+                <MessageStrip type="Warning" showIcon="true" showCloseButton="false"
+                              class="sapUiTinyMarginBottom"
+                              visible="{fieldEdit>/fieldNotFound}"
+                              text="This field no longer has a Field Master catalogue entry, so its data type, display type and group can't be shown. You can still edit the assignment below."/>
 
                 <l:Grid defaultSpan="L4 M4 S12" hSpacing="2" class="sapUiSmallMarginBottom">
                     <l:content>

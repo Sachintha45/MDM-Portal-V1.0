@@ -100,10 +100,10 @@
                                       class="sapUiSmallMarginBegin mdmSubtitleText"/>
                                 <ToolbarSpacer/>
                                 <Button text="Assign Fields" icon="sap-icon://add" type="Emphasized"
-                                        press=".onAssignFields" enabled="{= !${view>/isNew}}"/>
+                                        press=".onAssignFields"/>
                             </Toolbar>
                             <Table id="fieldsTable"
-                                   noDataText="{= ${view>/isNew} ? 'Save the role first to assign fields.' : 'No fields assigned yet.'}"
+                                   noDataText="{= ${view>/isNew} ? 'No fields added yet — anything you assign here is saved together with the role.' : 'No fields assigned yet.'}"
                                    fixedLayout="true"
                                    alternateRowColors="false"
                                    showSeparators="Inner"
@@ -116,14 +116,11 @@
                                        ]
                                    }">
                                 <columns>
-                                    <Column width="11rem"><Label text="Main ▸ Sub Group" design="Bold"/></Column>
-                                    <Column width="7rem"><Label text="Field Name"   design="Bold"/></Column>
-                                    <Column>             <Label text="Description"  design="Bold"/></Column>
-                                    <Column width="6rem"><Label text="Data Type"    design="Bold"/></Column>
-                                    <Column width="7rem" hAlign="Center"><Label text="Field Status"  design="Bold"/></Column>
-                                    <Column width="4rem" hAlign="End"><Label text="Seq" design="Bold"/></Column>
-                                    <Column width="7rem" hAlign="Center"><Label text="Prerequisite"  design="Bold"/></Column>
-                                    <Column width="3rem" hAlign="End"/>
+                                    <Column width="22%"><Label text="Main ▸ Sub Group" design="Bold"/></Column>
+                                    <Column width="13%"><Label text="Field Name"   design="Bold"/></Column>
+                                    <Column width="42%"><Label text="Description"  design="Bold"/></Column>
+                                    <Column width="15%" hAlign="Center"><Label text="Field Status"  design="Bold"/></Column>
+                                    <Column width="8%" hAlign="End"/>
                                 </columns>
                                 <items>
                                     <ColumnListItem type="Active" press=".onFieldRowPress">
@@ -132,14 +129,9 @@
                                                   class="mdmSubtitleText"/>
                                             <Link text="{assigned>field_id}" press=".onFieldLinkPress" wrapping="false"/>
                                             <Text text="{assigned>description}" wrapping="false"/>
-                                            <Text text="{assigned>data_type}"   wrapping="false"/>
                                             <ObjectStatus
                                                 text="{path: 'assigned>field_status', formatter: '.formatStatusText'}"
                                                 state="{path: 'assigned>field_status', formatter: '.formatStatusState'}"/>
-                                            <Text text="{assigned>sequence}" wrapping="false"/>
-                                            <ObjectStatus
-                                                text="{= ${assigned>is_prerequisite} ? 'Prerequisite' : '\u2014'}"
-                                                state="{= ${assigned>is_prerequisite} ? 'Warning' : 'None'}"/>
                                             <Button icon="sap-icon://decline" type="Transparent"
                                                     tooltip="Remove from this role"
                                                     press=".onRemoveAssignedField"/>

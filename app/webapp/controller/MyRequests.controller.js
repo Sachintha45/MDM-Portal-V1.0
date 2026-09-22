@@ -5,8 +5,9 @@ sap.ui.define([
     "sap/ui/model/FilterOperator",
     "sap/ui/model/Sorter",
     "sap/m/MessageToast",
-    "sap/m/MessageBox"
-], function (Controller, JSONModel, Filter, FilterOperator, Sorter, MessageToast, MessageBox) {
+    "sap/m/MessageBox",
+    "mdm/portal/util/ApprovalHelper"
+], function (Controller, JSONModel, Filter, FilterOperator, Sorter, MessageToast, MessageBox, ApprovalHelper) {
     "use strict";
 
     return Controller.extend("mdm.portal.controller.MyRequests", {
@@ -14,6 +15,20 @@ sap.ui.define([
         onInit: function () {
             var oViewModel = new JSONModel({ busy: false });
             this.getView().setModel(oViewModel, "view");
+
+            // "My Requests" must only ever show the logged-in user's own
+            // change requests — resolve who that is once, up front, and
+            // scope every filter/refresh to it from then on. Without this,
+            // the table (bound straight to /ChangeRequests, which has no
+            // server-side requester restriction — other screens like My
+            // Approvals deliberately need to see everyone's CRs) shows
+            // every user's requests, not just the current user's.
+            this._sMyUserId = null;
+            this._pMyUserId = ApprovalHelper.getCurrentUserId(this.getOwnerComponent().getModel())
+                .then(function (sUserId) {
+                    this._sMyUserId = sUserId;
+                    this._applyFilters();
+                }.bind(this));
 
             var oRouter = this.getOwnerComponent().getRouter();
             oRouter.getRoute("myRequests").attachPatternMatched(this._onRouteMatched, this);
@@ -35,12 +50,12 @@ sap.ui.define([
         },
 
         _onRouteMatched: function () {
-            // Refresh the table binding each time the route is hit
-            var oTable = this.byId("crTable");
-            if (oTable) {
-                var oBinding = oTable.getBinding("items");
-                if (oBinding) { oBinding.refresh(); }
-            }
+            // Re-apply filters (requester scope + whatever status/type/search
+            // is currently set) each time the route is hit, rather than a
+            // bare refresh — this guarantees the requester scope is in place
+            // even on the very first navigation, where onInit's user-id
+            // lookup may still be in flight.
+            this._pMyUserId.then(this._applyFilters.bind(this));
         },
 
         onFilterChange: function () {
@@ -57,6 +72,10 @@ sap.ui.define([
             var sQuery  = this.byId("sfSearch").getValue().toLowerCase();
 
             var aFilters = [];
+            // Always scope the list to the current user's own requests.
+            if (this._sMyUserId) {
+                aFilters.push(new Filter("requester", FilterOperator.EQ, this._sMyUserId));
+            }
             if (sStatus) { aFilters.push(new Filter("status",       FilterOperator.EQ, sStatus)); }
             if (sType)   { aFilters.push(new Filter("request_type", FilterOperator.EQ, sType)); }
             if (sQuery)  {

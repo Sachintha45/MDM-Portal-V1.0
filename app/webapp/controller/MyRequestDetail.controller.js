@@ -3,6 +3,7 @@ sap.ui.define([
     "sap/ui/model/json/JSONModel",
     "sap/m/MessageBox",
     "sap/m/MessageToast",
+    "sap/m/MessageStrip",
     "sap/m/Token",
     "sap/m/SegmentedButtonItem",
     "sap/m/IconTabFilter",
@@ -16,16 +17,20 @@ sap.ui.define([
     "sap/m/Column",
     "sap/m/ColumnListItem",
     "sap/m/ObjectIdentifier",
+    "sap/m/ObjectStatus",
+    "sap/m/Avatar",
     "sap/ui/core/Item",
+    "sap/ui/core/Icon",
     "sap/m/VBox",
     "sap/m/HBox",
     "sap/m/Toolbar",
     "sap/m/ToolbarSpacer"
 ], function (
-    Controller, JSONModel, MessageBox, MessageToast,
+    Controller, JSONModel, MessageBox, MessageToast, MessageStrip,
     Token, SegmentedButtonItem, IconTabFilter,
     Panel, Title, Label, Text, Input, Select,
-    Table, Column, ColumnListItem, ObjectIdentifier, CoreItem,
+    Table, Column, ColumnListItem, ObjectIdentifier, ObjectStatus, Avatar,
+    CoreItem, Icon,
     VBox, HBox, Toolbar, ToolbarSpacer
 ) {
     "use strict";
@@ -132,6 +137,14 @@ sap.ui.define([
                     (oData.request_type || "") + " \u00b7 " +
                     (oData.bp_category_category_id || "") + " \u00b7 " +
                     (oData.status || ""));
+
+                // Runs independently of the role/field-tab pipeline below \u2014
+                // populates the "Release / Approval Strategy" tab with the
+                // release codes, assigned approvers and progress that were
+                // determined for this CR (same CRReleaseStep data the
+                // approver's My Approvals screen is built from), which the
+                // requester otherwise has no visibility into.
+                that._loadReleaseStrategy(sBase, sCrId, oData);
 
                 // Fetch Number Range from AccountGroup
                 var sAg = oData.account_group_account_group_id;
@@ -394,9 +407,11 @@ sap.ui.define([
             var oBar   = this.byId("detailRoleBar");
             var oTabs  = this.byId("detailRoleTabs");
             var oMulti = this.byId("inDetailRoles");
+            var oRsBox = this.byId("releaseStrategyBox");
             if (oBar)   { oBar.destroyItems(); }
             if (oTabs)  { oTabs.destroyItems(); }
             if (oMulti) { oMulti.removeAllTokens(); }
+            if (oRsBox) { oRsBox.destroyItems(); }
             this._oViewModel.setProperty("/activeRole", "");
             this._oViewModel.setProperty("/numberRange", "");
         },
@@ -749,6 +764,389 @@ sap.ui.define([
                 class: "sapUiTinyMarginBottom",
                 items: [oLabel, oTable]
             });
+        },
+
+        // ── Release / Approval Strategy tab ─────────────────────────────
+        //
+        // Fetches the release codes, assigned approvers and per-step
+        // progress that were determined for this CR — the same data
+        // ApprovalDetail.controller.js's release progress strip is built
+        // from — so the requester can see who's reviewing their request
+        // and where it stands, instead of that being invisible to them.
+        // Runs independently of _loadMeta/_renderAll (which only concern
+        // the "Request Details" tab's field-group tabs).
+
+        _fmtDate: function (v) {
+            return v ? new Date(v).toLocaleString() : "";
+        },
+
+        _loadReleaseStrategy: function (sBase, sCrId, oData) {
+            var that   = this;
+            var sCrKey = "'" + encodeURIComponent(sCrId) + "'";
+
+            function fetchJson(sUrl) {
+                return fetch(sUrl, { headers: { Accept: "application/json" } })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) { return (d && d.value !== undefined) ? d.value : d; })
+                    .catch(function () { return []; });
+            }
+
+            this._sStrategyId = oData.strategy_strategy_id || null;
+
+            var pStrategyMeta = this._sStrategyId
+                ? fetchJson(sBase + "/ReleaseStrategies('" + encodeURIComponent(this._sStrategyId) + "')?$select=strategy_id,description,priority")
+                : Promise.resolve(null);
+
+            var pCrStrategy = fetchJson(
+                sBase + "/CRReleaseStrategies?$filter=cr_cr_id eq " + sCrKey +
+                "&$select=cr_cr_id,determined_at,overall_status,current_step,completed_at&$top=1"
+            );
+
+            var pSteps = fetchJson(
+                sBase + "/CRReleaseSteps?$filter=cr_cr_cr_id eq " + sCrKey +
+                "&$select=cr_cr_cr_id,step_number,sequence_within_step,parallel," +
+                "release_code_release_code_id,assigned_to,status,due_at,acted_by,acted_at,comment" +
+                "&$orderby=step_number,sequence_within_step&$top=200"
+            );
+
+            var pDecisions = fetchJson(
+                sBase + "/CRApprovalDecisions?$filter=cr_cr_id eq " + sCrKey +
+                "&$orderby=acted_at&$top=500"
+            );
+
+            var pReleaseCodes = fetchJson(
+                sBase + "/ReleaseCodes?$select=release_code_id,description,sla_hours&$top=200"
+            );
+
+            Promise.all([pStrategyMeta, pCrStrategy, pSteps, pDecisions, pReleaseCodes])
+            .then(function (aRes) {
+                var oStrategyMeta = aRes[0];
+                var aCrStrategy   = aRes[1] || [];
+                var aSteps        = aRes[2] || [];
+                var aDecisions    = aRes[3] || [];
+                var aReleaseCodes = aRes[4] || [];
+
+                that._oStrategyMeta = (oStrategyMeta && !oStrategyMeta.error) ? oStrategyMeta : null;
+                that._oCrStrategy   = aCrStrategy[0] || null;
+                that._aRsSteps      = aSteps;
+                that._aRsDecisions  = aDecisions;
+
+                that._mReleaseCodeMeta = {};
+                aReleaseCodes.forEach(function (c) {
+                    that._mReleaseCodeMeta[c.release_code_id] = {
+                        description: c.description || "",
+                        sla_hours  : c.sla_hours
+                    };
+                });
+
+                var aCodesUsed = [];
+                aSteps.forEach(function (s) {
+                    var sCode = s.release_code_release_code_id;
+                    if (sCode && aCodesUsed.indexOf(sCode) < 0) { aCodesUsed.push(sCode); }
+                });
+
+                if (!aCodesUsed.length) {
+                    that._mCodeApprovers = {};
+                    that._buildReleaseStrategyTab();
+                    return;
+                }
+
+                var sFilter = "(" + aCodesUsed.map(function (c) {
+                    return "release_code_release_code_id eq '" + encodeURIComponent(c) + "'";
+                }).join(" or ") + ") and active eq true";
+
+                fetchJson(
+                    sBase + "/ReleaseCodeUsers?$filter=" + encodeURIComponent(sFilter) +
+                    "&$select=release_code_release_code_id,user_id,assignment_type&$top=200"
+                ).then(function (aUsers) {
+                    that._mCodeApprovers = {};
+                    (aUsers || []).forEach(function (u) {
+                        var sCode = u.release_code_release_code_id;
+                        if (!that._mCodeApprovers[sCode]) { that._mCodeApprovers[sCode] = []; }
+                        that._mCodeApprovers[sCode].push({
+                            user_id: u.user_id,
+                            assignment_type: u.assignment_type
+                        });
+                    });
+                    that._buildReleaseStrategyTab();
+                });
+            });
+        },
+
+        _buildReleaseStrategyTab: function () {
+            var oBox = this.byId("releaseStrategyBox");
+            if (!oBox) { return; }
+            oBox.destroyItems();
+
+            var that     = this;
+            var sStatus  = this._oViewModel.getProperty("/status");
+            var aSteps   = this._aRsSteps || [];
+
+            if (!aSteps.length) {
+                oBox.addItem(new MessageStrip({
+                    type: "Information",
+                    showIcon: true,
+                    class: "sapUiSmallMarginBottom",
+                    text: sStatus === "DRAFT"
+                        ? "This request hasn't been submitted yet — the release strategy, release codes and approvers are determined automatically when you submit it."
+                        : "No release strategy steps were found for this request."
+                }));
+                return;
+            }
+
+            var oCrStrategy = this._oCrStrategy || {};
+
+            // NOTE on data source: CRReleaseStrategy.overall_status and
+            // .current_step are written ONCE at submit time
+            // (createReleaseStrategySnapshot: 'IN_PROGRESS' / 1) and are
+            // never updated again as stages actually progress — confirmed
+            // in srv/mdm-service.js's _applyStepDecision, which advances
+            // CRReleaseStep.status and CRHeader.status but never touches
+            // CRReleaseStrategy. Trusting those two fields here is what
+            // made an already-approved stage's next stage keep showing
+            // "Not yet reached". CRHeader.status (this._oViewModel's
+            // "/status") and each CRReleaseStep's own .status ARE kept
+            // correct throughout, so both the overall badge/terminal box
+            // and the "which stage is current" logic below are derived
+            // from those instead — the same live data ApprovalHelper.js
+            // and My Approvals already rely on.
+            var sHeaderStatus = this._oViewModel.getProperty("/status");
+
+            // ── 1. Release Strategy — shown first, on its own, so it's
+            //      clear which strategy applies before anything about the
+            //      approvers who are part of it ─────────────────────────
+            var sStrategyTitle = this._sStrategyId
+                ? "Strategy " + this._sStrategyId +
+                  (this._oStrategyMeta && this._oStrategyMeta.description ? " — " + this._oStrategyMeta.description : "")
+                : "—";
+            var mHeaderStatusState = {
+                DRAFT: "None", IN_APPROVAL: "Warning", APPROVED: "Success", POSTED: "Success",
+                REJECTED: "Error", SENT_BACK: "Warning", CANCELLED: "None"
+            };
+
+            oBox.addItem(new Panel({
+                class: "sapUiSmallMarginBottom",
+                content: [
+                    new HBox({
+                        alignItems: "Center",
+                        class: "sapUiSmallMargin",
+                        items: [
+                            new Icon({ src: "sap-icon://workflow-tasks", size: "1.5rem", class: "sapUiSmallMarginEnd", color: "Default" }),
+                            new VBox({ items: [
+                                new Title({ text: sStrategyTitle, level: "H5" }),
+                                new ObjectStatus({
+                                    text : sHeaderStatus || "—",
+                                    state: mHeaderStatusState[sHeaderStatus] || "None",
+                                    class: "sapUiTinyMarginTop"
+                                }),
+                                new Text({
+                                    text : oCrStrategy.determined_at ? "Determined " + that._fmtDate(oCrStrategy.determined_at) : "",
+                                    class: "sapMDMFlowArrowLabel sapUiTinyMarginTop"
+                                })
+                            ] })
+                        ]
+                    })
+                ]
+            }));
+
+            // ── 2. Approval flow — the relevant approvers, grouped into
+            //      stages exactly the way the Release Strategy admin
+            //      screen visualizes them, but showing THIS request's
+            //      actual approver(s) and live status per step. "Current"
+            //      stage = the first one that isn't fully APPROVED yet —
+            //      computed here rather than trusted from current_step
+            //      (see the note above) ──────────────────────────────
+            oBox.addItem(new Title({ text: "Approval Flow", level: "H4", class: "sapUiTinyMarginBottom" }));
+
+            var aStages = this._computeRsStages(aSteps);
+            var iCurrentStageIdx = this._computeCurrentStageIndex(aStages);
+            var oFlow = new HBox({ alignItems: "Center", wrap: "Wrap", class: "sapUiSmallMarginBottom" });
+
+            aStages.forEach(function (aStageSteps, idx) {
+                if (idx > 0) { oFlow.addItem(that._buildRsFlowArrow("Then")); }
+                oFlow.addItem(that._buildRsStageBox(aStageSteps, idx === iCurrentStageIdx));
+            });
+
+            if (sHeaderStatus === "APPROVED" || sHeaderStatus === "POSTED") {
+                oFlow.addItem(that._buildRsFlowArrow("All done"));
+                oFlow.addItem(that._buildRsTerminalBox("Approved", "sap-icon://sys-enter-2", "Positive", "sapMDMFlowApproved"));
+            } else if (sHeaderStatus === "REJECTED") {
+                oFlow.addItem(that._buildRsFlowArrow("Result"));
+                oFlow.addItem(that._buildRsTerminalBox("Rejected", "sap-icon://sys-cancel-2", "Negative", "sapMDMFlowRejected"));
+            } else if (sHeaderStatus === "SENT_BACK") {
+                oFlow.addItem(that._buildRsFlowArrow("Result"));
+                oFlow.addItem(that._buildRsTerminalBox("Sent Back", "sap-icon://redo", "Critical", "sapMDMFlowSentBack"));
+            } else if (sHeaderStatus === "CANCELLED") {
+                oFlow.addItem(that._buildRsFlowArrow("Result"));
+                oFlow.addItem(that._buildRsTerminalBox("Cancelled", "sap-icon://sys-cancel-2", "Neutral", "sapMDMFlowCancelled"));
+            }
+
+            oBox.addItem(oFlow);
+
+            // ── 3. Decision history ──────────────────────────────────
+            oBox.addItem(new Title({ text: "Decision History", level: "H4", class: "sapUiTinyMarginTop sapUiTinyMarginBottom" }));
+
+            var mActionWord = { APPROVE: "Approved", REJECT: "Rejected", SEND_BACK: "Sent back" };
+            var aEvents = (this._aRsDecisions || []).map(function (d) {
+                return {
+                    ts: d.acted_at,
+                    title: (mActionWord[d.action] || d.action) +
+                        (d.release_code_release_code_id ? " — Code " + d.release_code_release_code_id : ""),
+                    meta: (d.acted_by || "—") + " · " + that._fmtDate(d.acted_at) +
+                        (d.comment ? " · “" + d.comment + "”" : "")
+                };
+            });
+            aEvents.sort(function (a, b) { return new Date(b.ts) - new Date(a.ts); });
+
+            if (!aEvents.length) {
+                oBox.addItem(new Text({ text: "No approval decisions recorded yet." }));
+            } else {
+                aEvents.forEach(function (ev) {
+                    oBox.addItem(new HBox({
+                        class: "sapUiTinyMarginBottom",
+                        items: [
+                            new Icon({ src: "sap-icon://record", size: "0.7rem", class: "sapUiTinyMarginTop sapUiTinyMarginEnd" }),
+                            new VBox({ items: [
+                                new Text({ text: ev.title, class: "sapMDMFlowCodeName" }),
+                                new Text({ text: ev.meta })
+                            ] })
+                        ]
+                    }));
+                });
+            }
+        },
+
+        // Groups steps into approval "stages" the same way
+        // ReleaseStrategyDetail.controller.js's _computeApprovalStages
+        // does for the strategy's own definition: a step marked
+        // parallel=true joins the previous step's stage instead of
+        // starting a new one. Mirrors what the backend's stage logic
+        // (_computeApprovalStages / ApprovalHelper.currentStageSteps)
+        // actually groups by, so this reads the same way the approval
+        // engine behaves.
+        _computeRsStages: function (aSteps) {
+            var aOrdered = aSteps.slice().sort(function (a, b) {
+                return a.step_number - b.step_number || a.sequence_within_step - b.sequence_within_step;
+            });
+            var aStages = [];
+            aOrdered.forEach(function (step) {
+                if (step.parallel && aStages.length > 0) {
+                    aStages[aStages.length - 1].push(step);
+                } else {
+                    aStages.push([step]);
+                }
+            });
+            return aStages;
+        },
+
+        // The "current" stage is the first one (in order) that isn't yet
+        // fully APPROVED — same definition ApprovalHelper.js's
+        // _currentStageSteps and the backend's _applyStepDecision use to
+        // decide whether to trigger the next stage. Returns aStages.length
+        // (an out-of-range index, matching nothing) once every stage is
+        // fully approved.
+        _computeCurrentStageIndex: function (aStages) {
+            for (var i = 0; i < aStages.length; i++) {
+                var bFullyApproved = aStages[i].every(function (s) { return s.status === "APPROVED"; });
+                if (!bFullyApproved) { return i; }
+            }
+            return aStages.length;
+        },
+
+        _buildRsFlowArrow: function (sLabel) {
+            return new VBox({
+                alignItems: "Center",
+                justifyContent: "Center",
+                items: [
+                    new Icon({ src: "sap-icon://arrow-right", color: "Neutral", size: "1.2rem" }),
+                    new Text({ text: sLabel }).addStyleClass("sapMDMFlowArrowLabel")
+                ]
+            }).addStyleClass("sapUiSmallMarginBeginEnd");
+        },
+
+        // One step's card content — an Avatar badge (step number) plus the
+        // release code, its description, WHO is assigned to approve it,
+        // and a live status badge. Used both as a standalone
+        // sapMDMFlowStageSingle box and, for a parallel stage, once per
+        // code inside a sapMDMFlowStageParallel wrapper (see
+        // _buildRsStageBox) — same reuse pattern as
+        // ReleaseStrategyDetail.controller.js's _buildCodeCard.
+        _buildRsStepCardContent: function (step, bIsCurrentStage) {
+            var oCodeMeta = this._mReleaseCodeMeta[step.release_code_release_code_id] || {};
+            var sDesc = oCodeMeta.description || "";
+
+            var aApprovers = (this._mCodeApprovers && this._mCodeApprovers[step.release_code_release_code_id]) || [];
+            var sApproverNames = aApprovers.length
+                ? aApprovers.map(function (a) {
+                    return a.user_id + (a.assignment_type === "GROUP" ? " (group)" : "");
+                }).join(", ")
+                : (step.assigned_to || "Not yet assigned");
+
+            var mState = { APPROVED: "Success", REJECTED: "Error", SENT_BACK: "Warning" };
+            var sState = mState[step.status] || (bIsCurrentStage ? "Warning" : "None");
+
+            var sStatusText;
+            if (step.status === "APPROVED") {
+                sStatusText = "Approved by " + (step.acted_by || "—") + " · " + this._fmtDate(step.acted_at);
+            } else if (step.status === "REJECTED") {
+                sStatusText = "Rejected by " + (step.acted_by || "—") + " · " + this._fmtDate(step.acted_at);
+            } else if (step.status === "SENT_BACK") {
+                sStatusText = "Sent back by " + (step.acted_by || "—") + " · " + this._fmtDate(step.acted_at);
+            } else if (bIsCurrentStage) {
+                sStatusText = "Awaiting approval" + (step.due_at ? " · Due " + this._fmtDate(step.due_at) : "");
+            } else {
+                sStatusText = "Not yet reached";
+            }
+
+            return new HBox({
+                alignItems: "Center",
+                items: [
+                    new Avatar({
+                        displaySize: "XS",
+                        initials: String(step.step_number).padStart(2, "0"),
+                        backgroundColor: "Accent6"
+                    }).addStyleClass("sapUiTinyMarginEnd"),
+                    new VBox({
+                        items: [
+                            new Text({ text: step.release_code_release_code_id + (sDesc ? " — " + sDesc : "") })
+                                .addStyleClass("sapMDMFlowCodeName"),
+                            new Text({ text: "Approver: " + sApproverNames }).addStyleClass("sapMDMFlowArrowLabel"),
+                            new ObjectStatus({ text: sStatusText, state: sState, class: "sapUiTinyMarginTop" })
+                        ]
+                    })
+                ]
+            });
+        },
+
+        _buildRsStageBox: function (aStageSteps, bIsCurrentStage) {
+            var that = this;
+
+            if (aStageSteps.length === 1) {
+                var step = aStageSteps[0];
+                return this._buildRsStepCardContent(step, bIsCurrentStage)
+                    .addStyleClass("sapMDMFlowStageSingle");
+            }
+
+            var aItems = [
+                new Text({ text: "Parallel — Run Together" }).addStyleClass("sapMDMFlowStageParallelLabel")
+            ];
+            aStageSteps.forEach(function (step) {
+                aItems.push(
+                    that._buildRsStepCardContent(step, bIsCurrentStage)
+                        .addStyleClass("sapMDMFlowCodeCard")
+                );
+            });
+            return new VBox({ items: aItems }).addStyleClass("sapMDMFlowStageParallel");
+        },
+
+        _buildRsTerminalBox: function (sText, sIcon, sColor, sStyleClass) {
+            return new HBox({
+                alignItems: "Center",
+                items: [
+                    new Icon({ src: sIcon, color: sColor }).addStyleClass("sapUiTinyMarginEnd"),
+                    new Text({ text: sText }).addStyleClass("sapMDMFlowCodeName")
+                ]
+            }).addStyleClass(sStyleClass);
         },
 
         // ── Role switcher ─────────────────────────────────────────────

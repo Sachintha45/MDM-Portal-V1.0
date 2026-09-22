@@ -19,81 +19,100 @@
         <content>
             <VBox class="sapUiMediumMarginBeginEnd sapUiSmallMarginTop sapUiSmallMarginBottom">
 
-                <!-- ── Subtitle ─────────────────────────────────────────── -->
-                <!-- <Text text="{view>/subtitle}" class="mdmSubtitleText sapUiTinyMarginBottom"/> -->
-
-                <!-- ── Header metadata attributes ──────────────────────── -->
-                <!-- <HBox wrap="Wrap" class="sapUiSmallMarginBottom" alignItems="Center">
-                    <ObjectAttribute title="Status"        text="{view>/status}"      class="sapUiMediumMarginEnd"/>
-                    <ObjectAttribute title="Type"          text="{view>/type}"        class="sapUiMediumMarginEnd"/>
-                    <ObjectAttribute title="Requester"     text="{view>/requester}"   class="sapUiMediumMarginEnd"/>
-                    <ObjectAttribute title="Created On"    text="{view>/createdAt}"   class="sapUiMediumMarginEnd"/>
-                    <ObjectAttribute title="BP Number"     text="{view>/bpNumber}"    class="sapUiMediumMarginEnd"/>
-                </HBox> -->
-
                 <core:HTML content="&lt;hr style='border:none;border-top:1px solid var(--sapGroup_TitleBorderColor);margin:0 0 0.75rem 0;width:100%'/&gt;"/>
 
-                <!-- ── BP Category (read-only) ──────────────────────────── -->
-                <HBox alignItems="End" class="sapUiSmallMarginBottom">
-                    <VBox width="42%">
-                        <Label text="BP Category" required="true"/>
-                        <Input id="inDetailCategory"
-                               value="{view>/category}"
-                               editable="false"
-                               width="100%"/>
-                    </VBox>
-                </HBox>
+                <!-- ── Top-level tabs: what the requester filled in vs. who's
+                     reviewing it and where it stands ─────────────────────── -->
+                <IconTabBar id="topLevelTabs" expanded="true"
+                            class="sapUiResponsiveContentPadding">
+                    <items>
 
-                <!-- ── BP Roles (read-only token chips) ─────────────────── -->
-                <Label text="BP Roles" required="true" class="sapUiTinyMarginBottom"/>
-                <MultiInput id="inDetailRoles"
-                            width="100%"
-                            editable="false"
-                            showValueHelp="false"
-                            class="sapUiSmallMarginBottom">
-                    <!-- tokens built dynamically in controller -->
-                </MultiInput>
+                        <IconTabFilter key="requestDetails" text="Request Details"
+                                       icon="sap-icon://request">
+                            <content>
+                                <VBox>
 
-                <!-- ── Account Group · BP Number · Number Range ─────────── -->
-                <HBox alignItems="End" class="sapUiSmallMarginBottom">
-                    <VBox width="33%" class="sapUiTinyMarginEnd">
-                        <Label text="BP Account Group" required="true"/>
-                        <Input value="{view>/accountGroup}" editable="false" width="100%"/>
-                    </VBox>
-                    <VBox width="33%" class="sapUiTinyMarginEnd">
-                        <Label text="BP Number"/>
-                        <Input value="{view>/bpNumber}" editable="false" width="100%"/>
-                    </VBox>
-                    <VBox width="33%">
-                        <Label text="Number Range"/>
-                        <Input value="{view>/numberRange}" editable="false" width="100%"/>
-                    </VBox>
-                </HBox>
+                                    <!-- ── BP Category (read-only) ──────────────────── -->
+                                    <HBox alignItems="End" class="sapUiSmallMarginBottom">
+                                        <VBox width="42%">
+                                            <Label text="BP Category" required="true"/>
+                                            <Input id="inDetailCategory"
+                                                   value="{view>/category}"
+                                                   editable="false"
+                                                   width="100%"/>
+                                        </VBox>
+                                    </HBox>
 
-                <!-- ── Priority ─────────────────────────────────────────── -->
-                <HBox alignItems="End" class="sapUiSmallMarginBottom">
-                    <VBox width="33%">
-                        <Label text="Priority"/>
-                        <Input value="{view>/priority}" editable="false" width="100%"/>
-                    </VBox>
-                </HBox>
+                                    <!-- ── BP Roles (read-only token chips) ─────────── -->
+                                    <Label text="BP Roles" required="true" class="sapUiTinyMarginBottom"/>
+                                    <MultiInput id="inDetailRoles"
+                                                width="100%"
+                                                editable="false"
+                                                showValueHelp="false"
+                                                class="sapUiSmallMarginBottom">
+                                        <!-- tokens built dynamically in controller -->
+                                    </MultiInput>
 
-                <core:HTML content="&lt;hr style='border:none;border-top:1px solid var(--sapGroup_TitleBorderColor);margin:0.5rem 0;width:100%'/&gt;"/>
+                                    <!-- ── Account Group · BP Number · Number Range ── -->
+                                    <HBox alignItems="End" class="sapUiSmallMarginBottom">
+                                        <VBox width="33%" class="sapUiTinyMarginEnd">
+                                            <Label text="BP Account Group" required="true"/>
+                                            <Input value="{view>/accountGroup}" editable="false" width="100%"/>
+                                        </VBox>
+                                        <VBox width="33%" class="sapUiTinyMarginEnd">
+                                            <Label text="BP Number"/>
+                                            <Input value="{view>/bpNumber}" editable="false" width="100%"/>
+                                        </VBox>
+                                        <VBox width="33%">
+                                            <Label text="Number Range"/>
+                                            <Input value="{view>/numberRange}" editable="false" width="100%"/>
+                                        </VBox>
+                                    </HBox>
 
-                <!-- ── Role switcher (mirrors Create BP ACTIVE ROLE bar) ── -->
-                <Label text="ACTIVE ROLE" class="sapUiTinyMarginBottom mdmRoleBarLabel"
-                       visible="{= ${view>/roleCount} > 1 }"/>
-                <SegmentedButton id="detailRoleBar"
-                                 width="100%"
-                                 visible="{= ${view>/roleCount} > 1 }"
-                                 select=".onDetailRoleChange"
-                                 class="sapUiSmallMarginBottom"/>
+                                    <!-- ── Priority ──────────────────────────────────── -->
+                                    <HBox alignItems="End" class="sapUiSmallMarginBottom">
+                                        <VBox width="33%">
+                                            <Label text="Priority"/>
+                                            <Input value="{view>/priority}" editable="false" width="100%"/>
+                                        </VBox>
+                                    </HBox>
 
-                <!-- ── Field tabs (built dynamically per active role) ────── -->
-                <IconTabBar id="detailRoleTabs"
-                            expanded="true"
-                            class="sapUiResponsiveContentPadding"
-                            select=".onDetailTabChange"/>
+                                    <core:HTML content="&lt;hr style='border:none;border-top:1px solid var(--sapGroup_TitleBorderColor);margin:0.5rem 0;width:100%'/&gt;"/>
+
+                                    <!-- ── Role switcher (mirrors Create BP ACTIVE ROLE bar) ── -->
+                                    <Label text="ACTIVE ROLE" class="sapUiTinyMarginBottom mdmRoleBarLabel"
+                                           visible="{= ${view>/roleCount} > 1 }"/>
+                                    <SegmentedButton id="detailRoleBar"
+                                                     width="100%"
+                                                     visible="{= ${view>/roleCount} > 1 }"
+                                                     select=".onDetailRoleChange"
+                                                     class="sapUiSmallMarginBottom"/>
+
+                                    <!-- ── Field tabs (built dynamically per active role) ── -->
+                                    <IconTabBar id="detailRoleTabs"
+                                                expanded="true"
+                                                class="sapUiResponsiveContentPadding"
+                                                select=".onDetailTabChange"/>
+
+                                </VBox>
+                            </content>
+                        </IconTabFilter>
+
+                        <!-- ── Release / Approval Strategy: which release codes and
+                             approvers were determined for this request, and where
+                             it currently stands — built dynamically in controller
+                             (see _buildReleaseStrategyTab) since it's driven by the
+                             same CRReleaseStep/ReleaseCodeUser data the approver's
+                             My Approvals screen uses. ─────────────────────────── -->
+                        <IconTabFilter key="releaseStrategy" text="Release / Approval Strategy"
+                                       icon="sap-icon://workflow-tasks">
+                            <content>
+                                <VBox id="releaseStrategyBox" class="sapUiSmallMarginTop"/>
+                            </content>
+                        </IconTabFilter>
+
+                    </items>
+                </IconTabBar>
 
             </VBox>
         </content>

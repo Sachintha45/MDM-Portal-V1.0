@@ -155,6 +155,14 @@ class MDMPortalService extends cds.ApplicationService {
                 await UPDATE('mdm.portal.CRHeader')
                     .set({ status: 'CANCELLED' })
                     .where({ cr_id: cr_id });
+                // Keep CRReleaseStrategy.overall_status in sync with the
+                // real outcome — see the matching note in
+                // _applyStepDecision. A no-op (0 rows) if this CR was
+                // cancelled before ever being submitted, so no
+                // CRReleaseStrategy row exists yet.
+                await db.update('mdm.portal.CRReleaseStrategy')
+                    .where({ cr_cr_id: cr_id })
+                    .set({ overall_status: 'CANCELLED' });
                 return { success: true, message: `Request ${cr_id} cancelled.` };
             }
 
@@ -938,7 +946,7 @@ class MDMPortalService extends cds.ApplicationService {
                     method: 'POST',
                     path: '/public/workflow/rest/v1/workflow-instances',
                     data: {
-                        definitionId:'us10.intellectdev-fhnkjclj.crapproval2.cR_Approval',
+                        definitionId: 'us10.mdm-portal-nd2mtjke.mdmportalapproval.cR_Approval',
                         context: {
                             cr_id: crId,
                             step_number: stepNumber,
@@ -949,24 +957,11 @@ class MDMPortalService extends cds.ApplicationService {
                 });
                 console.log(`[workflow] Started BPA workflow instance for CR ${crId}, step ${stepNumber} (approver: ${approverEmail})`);
             } catch (workflowError) {
-                // The SAP Cloud SDK wraps the REAL reason several .cause
-                // layers deep under a generic top-level message ("Failed to
-                // load destination") — logging workflowError.message alone
-                // (the old behavior) hides exactly the detail we need to
-                // actually diagnose this. Walk the full chain instead.
-                var aCauseChain = [];
-                var eWalk = workflowError;
-                var iGuard = 0;
-                while (eWalk && iGuard < 10) {
-                    aCauseChain.push(eWalk.message || String(eWalk));
-                    eWalk = eWalk.cause;
-                    iGuard++;
-                }
                 console.error(
                     `[workflow] Failed to start BPA workflow for ${crId} step ${stepNumber}:`,
-                    'full cause chain: ' + aCauseChain.join(' \u2192 caused by \u2192 '),
-                    'HTTP status:', workflowError.response?.status,
-                    'HTTP data:', workflowError.response?.data
+                    workflowError.message,
+                    workflowError.response?.status,
+                    workflowError.response?.data
                 );
             }
         };
@@ -1035,10 +1030,28 @@ class MDMPortalService extends cds.ApplicationService {
             let bTriggeredNextStage = false;
             let bFullyApproved = false;
 
+            // NOTE: CRReleaseStrategy.overall_status / .current_step used to
+            // be written once at submit time (createReleaseStrategySnapshot)
+            // and never touched again here, which left them permanently
+            // stale ('IN_PROGRESS' / 1) no matter how far the actual
+            // approval progressed — CRReleaseStep.status and CRHeader.status
+            // were always the real source of truth. The UI has been fixed
+            // to derive everything from those instead of trusting this
+            // entity, but these updates keep CRReleaseStrategy itself
+            // honest too, for any other consumer (reports, future
+            // integrations, direct queries) that might read it.
             if (decision === 'REJECT') {
                 await db.update('mdm.portal.CRHeader').where({ cr_id: crId }).set({ status: 'REJECTED' });
+                await db.update('mdm.portal.CRReleaseStrategy').where({ cr_cr_id: crId }).set({ overall_status: 'REJECTED' });
             } else if (decision === 'SEND_BACK') {
                 await db.update('mdm.portal.CRHeader').where({ cr_id: crId }).set({ status: 'SENT_BACK' });
+                // overall_status intentionally left untouched: the
+                // OverallApprovalStatus enum (IN_PROGRESS/APPROVED/
+                // REJECTED/CANCELLED) has no SENT_BACK value — unlike a
+                // Reject, a Send Back isn't a final outcome, so leaving it
+                // at IN_PROGRESS (its existing value) is the closest
+                // accurate state rather than forcing it into one of the
+                // other three, which would misrepresent it as final.
             } else if (decision === 'APPROVE') {
                 const aStages = await this._computeApprovalStages(crId);
                 const iCurrentStageIdx = aStages.findIndex((stage) =>
@@ -1064,9 +1077,17 @@ class MDMPortalService extends cds.ApplicationService {
                         const cr = await SELECT.one.from('mdm.portal.CRHeader').where({ cr_id: crId });
                         await this._triggerStage(crId, cr ? cr.strategy_strategy_id : null, oNextStage, actorId);
                         bTriggeredNextStage = true;
+                        // current_step tracks the lowest step_number in the
+                        // newly-active stage — same "stage anchor" convention
+                        // already used client-side (e.g. ApprovalDetail's
+                        // _iCurrentStageNumber = aCurrentStage[0].step_number).
+                        await db.update('mdm.portal.CRReleaseStrategy').where({ cr_cr_id: crId })
+                            .set({ current_step: oNextStage[0].step_number });
                     } else {
                         // No more stages — every step across the whole CR is approved.
                         await db.update('mdm.portal.CRHeader').where({ cr_id: crId }).set({ status: 'APPROVED' });
+                        await db.update('mdm.portal.CRReleaseStrategy').where({ cr_cr_id: crId })
+                            .set({ overall_status: 'APPROVED' });
                         bFullyApproved = true;
                     }
                 }

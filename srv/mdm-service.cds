@@ -1,5 +1,14 @@
 using { mdm.portal } from '../db/data-model';
 
+// TEMPORARY — LOCAL TESTING ONLY. Forces the browser to show a native
+// Basic-Auth login prompt against the mocked users defined in
+// package.json's cds.requires.[development].auth, so req.user.id
+// actually resolves to someone instead of always "anonymous" on
+// localhost. Remove this line again once you're done testing locally —
+// it was deliberately commented out project-wide for easier local dev,
+// and production on BTP already enforces real XSUAA regardless of this
+// annotation (see mta.yaml's mdm-portal-uaa binding).
+@(requires: 'authenticated-user')
 service MDMPortalService {
 
     // =========================================================================

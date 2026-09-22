@@ -4,7 +4,7 @@
 
     <Dialog id="assignFieldsDialog"
             title="{dlg>/title}"
-            contentWidth="48rem"
+            contentWidth="60rem"
             contentHeight="34rem"
             resizable="true"
             draggable="true">
@@ -34,18 +34,29 @@
                        items="{dlg>/availableFields}"
                        fixedLayout="true" alternateRowColors="true">
                     <columns>
-                        <Column width="8rem"><Text text="Field Name"/></Column>
-                        <Column><Text text="Description"/></Column>
-                        <Column width="7rem"><Text text="Main ▸ Sub Group"/></Column>
-                        <Column width="6rem"><Text text="Data Type"/></Column>
+                        <Column width="20rem"><Text text="Description" wrapping="false"/></Column>
+                        <Column width="11rem"><Text text="Field Name" wrapping="false"/></Column>
+                        <Column><Text text="Main ▸ Sub Group" wrapping="false"/></Column>
                     </columns>
                     <items>
-                        <ColumnListItem>
+                        <!--
+                            "selected" is bound (two-way) to a per-row flag on
+                            the field object itself, not left to the Table's
+                            own index/path-based selection tracking. Without
+                            this, searching (which swaps /availableFields to a
+                            new, shorter array on every keystroke) can leave a
+                            checkbox showing "selected" on whatever field now
+                            happens to land at the same list position as a
+                            previously-checked one — i.e. fields the user never
+                            clicked appearing pre-selected. Binding "selected"
+                            to the object itself makes the checked state travel
+                            with the field, immune to re-filtering/reindexing.
+                        -->
+                        <ColumnListItem selected="{dlg>selected}">
                             <cells>
-                                <Text text="{dlg>field_id}" wrapping="false"/>
                                 <Text text="{dlg>description}" wrapping="false"/>
+                                <Text text="{dlg>field_id}" wrapping="false"/>
                                 <Text text="{dlg>group_path}" wrapping="false"/>
-                                <Text text="{dlg>data_type}" wrapping="false"/>
                             </cells>
                         </ColumnListItem>
                     </items>

@@ -5,6 +5,7 @@ sap.ui.define([
     "sap/m/MessageToast",
     "sap/m/MessageStrip",
     "sap/m/IconTabFilter",
+    "sap/m/SegmentedButtonItem",
     "sap/m/Panel",
     "sap/m/Title",
     "sap/m/Label",
@@ -19,13 +20,14 @@ sap.ui.define([
     "sap/m/Dialog",
     "sap/m/TextArea",
     "sap/m/Button",
+    "sap/m/Input",
     "sap/ui/core/Icon",
     "mdm/portal/util/ApprovalHelper"
 ], function (
     Controller, JSONModel, MessageBox, MessageToast, MessageStrip,
-    IconTabFilter, Panel, Title, Label, Text, ObjectStatus,
+    IconTabFilter, SegmentedButtonItem, Panel, Title, Label, Text, ObjectStatus,
     Table, Column, ColumnListItem, ObjectIdentifier,
-    VBox, HBox, Dialog, TextArea, Button, Icon,
+    VBox, HBox, Dialog, TextArea, Button, Input, Icon,
     ApprovalHelper
 ) {
     "use strict";
@@ -39,8 +41,7 @@ sap.ui.define([
                 subtitle          : "",
                 status            : "",
                 actionable        : false,
-                scopeTitle        : "",
-                scopeSubtitle     : "",
+                roleCount         : 0,
                 infoBannerText    : "",
                 infoBannerVisible : false
             });
@@ -390,7 +391,6 @@ sap.ui.define([
 
         _renderAll: function () {
             this._buildReleaseProgress();
-            this._buildScopeBanner();
             this._buildTabs();
         },
 
@@ -477,43 +477,6 @@ sap.ui.define([
             });
         },
 
-        // ── Scope banner ──────────────────────────────────────────────
-
-        _buildScopeBanner: function () {
-            var oVm = this._oViewModel;
-
-            if (!this._sMyReleaseCode) {
-                oVm.setProperty("/scopeTitle", "Full Request (read-only)");
-                oVm.setProperty("/scopeSubtitle", "You aren't an assigned approver for the current stage of this request.");
-                return;
-            }
-
-            var oCodeMeta = this._mReleaseCodeMeta[this._sMyReleaseCode] || {};
-            oVm.setProperty("/scopeTitle", "Your Scope \u2014 Code " + this._sMyReleaseCode +
-                (oCodeMeta.description ? " (" + oCodeMeta.description + ")" : ""));
-
-            if (this._bMyCodeUnrestricted) {
-                oVm.setProperty("/scopeSubtitle",
-                    "No section-level restriction is configured for this code \u2014 you see and can review the full request.");
-                return;
-            }
-
-            var that = this;
-            var aRoleScopes  = this._aMyScopeRows.filter(function (s) { return s.scope_type === "BP_ROLE"; })
-                .map(function (s) { return s.scope_id + (that._mRoleMeta[s.scope_id] ? " \u2014 " + that._mRoleMeta[s.scope_id] : ""); });
-            var aGroupScopes = this._aMyScopeRows.filter(function (s) { return s.scope_type === "FIELD_GROUP"; })
-                .map(function (s) { return (that._mGroupMeta[s.scope_id] && that._mGroupMeta[s.scope_id].description) || s.scope_id; });
-
-            var aParts = [];
-            if (aRoleScopes.length)  { aParts.push("BP role(s) " + aRoleScopes.join(", ")); }
-            if (aGroupScopes.length) { aParts.push("the " + aGroupScopes.join(", ") + " section(s)"); }
-
-            oVm.setProperty("/scopeSubtitle", aParts.length
-                ? "You are responsible for releasing " + aParts.join(" and ") +
-                  ". Out-of-scope sections are visible but read-only for you."
-                : "No matching scope found for this code \u2014 treat other sections as informational only.");
-        },
-
         // ── Tabs ──────────────────────────────────────────────────────
 
         _groupByMainTab: function (aFvs) {
@@ -542,58 +505,12 @@ sap.ui.define([
             return { mainOrder: aOrder, groups: mMain };
         },
 
-        _isTabInScope: function (sRoleId, sMainGroupId) {
-            if (this._bMyCodeUnrestricted) { return true; }
-            if (!sRoleId) { return false; }
-            var bRoleScoped = this._aMyScopeRows.some(function (s) {
-                return s.scope_type === "BP_ROLE" && s.scope_id === sRoleId;
-            });
-            if (bRoleScoped) { return true; }
-            if (sMainGroupId) {
-                return this._aMyScopeRows.some(function (s) {
-                    return s.scope_type === "FIELD_GROUP" && s.scope_id === sMainGroupId;
-                });
-            }
-            return false;
-        },
-
-        // Finds which OTHER code (if any) claims this role/group, for the
-        // "already released by Code X" out-of-scope messaging.
-        _findOwningCode: function (sRoleId, sMainGroupId) {
-            var oMatch = this._aAllScopeRows.find(function (s) {
-                return (s.scope_type === "BP_ROLE" && s.scope_id === sRoleId) ||
-                    (s.scope_type === "FIELD_GROUP" && s.scope_id === sMainGroupId);
-            });
-            if (!oMatch) { return null; }
-            var sCode = oMatch.release_code_release_code_id;
-            var oStep = this._aAllSteps.find(function (s) { return s.release_code_release_code_id === sCode; });
-            return { code: sCode, description: (this._mReleaseCodeMeta[sCode] || {}).description || "", step: oStep };
-        },
-
-        _buildScopeStrip: function (sRoleId, sMainGroupId) {
-            var bInScope = this._isTabInScope(sRoleId, sMainGroupId);
-            if (bInScope) {
-                return new MessageStrip({
-                    type: "Success",
-                    showIcon: true,
-                    class: "sapUiSmallMarginBottom",
-                    text: "In your scope \u2014 review the changes below, then use Approve, Reject, or Send Back."
-                });
-            }
-            var oOwner = this._findOwningCode(sRoleId, sMainGroupId);
-            var sText;
-            if (oOwner && oOwner.step && oOwner.step.status === "APPROVED") {
-                sText = "Read-only \u2014 already released by Code " + oOwner.code +
-                    (oOwner.description ? " (" + oOwner.description + ")" : "") + ".";
-            } else if (oOwner) {
-                sText = "Read-only \u2014 owned by Code " + oOwner.code +
-                    (oOwner.description ? " (" + oOwner.description + ")" : "") + ", not yet released.";
-            } else {
-                sText = "Read-only \u2014 outside your scope for this release code.";
-            }
-            return new MessageStrip({ type: "None", showIcon: true, class: "sapUiSmallMarginBottom", text: sText });
-        },
-
+        // Read-only field row: Label + disabled Input showing the value \u2014
+        // same shape as MyRequestDetail.controller.js's _buildFieldRow, so a
+        // field looks identical whether the requester is viewing what they
+        // filled in or an approver is reviewing it. (CRFieldValue doesn't
+        // carry a per-request field_status here, so unlike MyRequestDetail
+        // this doesn't show a required-field asterisk.)
         _buildDiffRow: function (fv) {
             var oFm = this._mFieldMeta[fv.field_id] || {};
 
@@ -602,16 +519,18 @@ sap.ui.define([
             }
 
             var sLabel = (oFm.description || fv.field_id) + ":";
-            var bChanged = fv.old_value !== fv.new_value;
 
             return new HBox({
                 alignItems: "Center",
                 class: "sapUiTinyMarginBottom",
                 items: [
                     new Label({ text: sLabel, tooltip: fv.field_id, width: "14rem", class: "sapUiTinyMarginEnd" }),
-                    new Text({ text: fv.old_value || "\u2014", width: "10rem" }),
-                    new Icon({ src: "sap-icon://arrow-right", class: "sapUiTinyMarginBeginEnd" }),
-                    new ObjectStatus({ text: fv.new_value || "\u2014", state: bChanged ? "Success" : "None" })
+                    new Input({
+                        value      : fv.new_value || "",
+                        editable   : false,
+                        width      : "22rem",
+                        placeholder: fv.new_value ? "" : "(not filled)"
+                    })
                 ]
             });
         },
@@ -663,8 +582,12 @@ sap.ui.define([
             oGrouping.mainOrder.forEach(function (sMainId) {
                 var oMainMeta = that._mGroupMeta[sMainId] || {};
                 var sMainLabel = oMainMeta.description || sMainId.replace(/_/g, " ");
-                var sRoleDesc = sRoleId ? (that._mRoleMeta[sRoleId] || sRoleId) : "";
-                var sTabLabel = sRoleId ? (sRoleId + " \u2014 " + sMainLabel) : sMainLabel;
+                // No more "ROLE \u2014 Group" prefix here: which role these fields
+                // belong to is now conveyed by the ACTIVE ROLE switcher above
+                // the tab bar (see _buildRoleBar), the same way MyRequestDetail
+                // shows one role's Field-Group tabs at a time instead of every
+                // role's tabs flattened into one long, repeatedly-labeled strip.
+                var sTabLabel = sMainLabel;
                 var sTabKey = (sRoleId || "__general") + "::" + sMainId;
 
                 var mSubs = oGrouping.groups[sMainId];
@@ -672,14 +595,6 @@ sap.ui.define([
                 Object.keys(mSubs).forEach(function (k) { iTotal += mSubs[k].length; });
 
                 var oTabVBox = new VBox({ class: "sapUiSmallMarginTop" });
-                oTabVBox.addItem(that._buildScopeStrip(sRoleId, sMainId));
-
-                if (sRoleId) {
-                    oTabVBox.addItem(new Text({
-                        text: sRoleDesc && sRoleDesc !== sRoleId ? (sRoleId + " \u2014 " + sRoleDesc) : sRoleId,
-                        class: "sapUiTinyMarginBottom mdmScopeTitle"
-                    }));
-                }
 
                 var aSubKeys = Object.keys(mSubs).sort(function (a, b) {
                     var seqA = (that._mGroupMeta[a] && that._mGroupMeta[a].sequence) || 99;
@@ -820,7 +735,70 @@ sap.ui.define([
             });
         },
 
+        // Builds the "ACTIVE ROLE" SegmentedButton — same pattern as
+        // MyRequestDetail's detailRoleBar — so an approver switches
+        // between roles exactly the way the requester did on Create BP /
+        // My Requests, instead of every role's Field-Group tabs being
+        // flattened into one long, repeatedly-prefixed IconTabBar strip.
+        _buildRoleBar: function () {
+            var oBar = this.byId("approvalRoleBar");
+            var aRoleIds = this._aCrRoleIds || [];
+            this._oViewModel.setProperty("/roleCount", aRoleIds.length);
+            if (!oBar) { return; }
+
+            oBar.destroyItems();
+            var that = this;
+            aRoleIds.forEach(function (sRoleId) {
+                var sDesc = that._mRoleMeta[sRoleId] || "";
+                oBar.addItem(new SegmentedButtonItem({
+                    key : sRoleId,
+                    text: sRoleId + (sDesc ? " — " + sDesc : "")
+                }));
+            });
+
+            this._sActiveRoleId = aRoleIds[0] || null;
+            if (aRoleIds.length > 1 && this._sActiveRoleId) {
+                oBar.setSelectedKey(this._sActiveRoleId);
+            }
+        },
+
+        // Appends the currently active role's Field-Group tabs to oTabs —
+        // shared by the initial render and onApprovalRoleChange below.
+        _appendActiveRoleTabs: function (oTabs) {
+            if (!this._sActiveRoleId) { return; }
+            var sRoleId = this._sActiveRoleId;
+            var aRoleFvs = this._aCrFieldValues.filter(function (fv) { return fv.role_id === sRoleId; });
+            this._buildTabsForBucket(sRoleId, aRoleFvs, oTabs);
+        },
+
         _buildTabs: function () {
+            var oTabs = this.byId("approvalTabs");
+            if (!oTabs) { return; }
+            oTabs.destroyItems();
+
+            this._buildRoleBar();
+
+            // General (non-role) fields — CATEGORY/ACCOUNT_GROUP-level values
+            // aren't tied to any one role, so these stay visible regardless
+            // of which role is selected in the switcher above.
+            var aGeneral = this._aCrFieldValues.filter(function (fv) { return !fv.role_id; });
+            this._buildTabsForBucket(null, aGeneral, oTabs);
+
+            this._appendActiveRoleTabs(oTabs);
+
+            oTabs.addItem(this._buildAttachmentsTab());
+            oTabs.addItem(this._buildHistoryTab());
+
+            var aItems = oTabs.getItems();
+            if (aItems.length) { oTabs.setSelectedKey(aItems[0].getKey()); }
+        },
+
+        // Mirrors MyRequestDetail's onDetailRoleChange: destroyItems() also
+        // destroys previously-held tab content, so General/Attachments/
+        // History are always rebuilt fresh here rather than re-added.
+        onApprovalRoleChange: function (oEvent) {
+            this._sActiveRoleId = oEvent.getParameter("key");
+
             var oTabs = this.byId("approvalTabs");
             if (!oTabs) { return; }
             oTabs.destroyItems();
@@ -828,11 +806,7 @@ sap.ui.define([
             var aGeneral = this._aCrFieldValues.filter(function (fv) { return !fv.role_id; });
             this._buildTabsForBucket(null, aGeneral, oTabs);
 
-            var that = this;
-            (this._aCrRoleIds || []).forEach(function (sRoleId) {
-                var aRoleFvs = that._aCrFieldValues.filter(function (fv) { return fv.role_id === sRoleId; });
-                that._buildTabsForBucket(sRoleId, aRoleFvs, oTabs);
-            });
+            this._appendActiveRoleTabs(oTabs);
 
             oTabs.addItem(this._buildAttachmentsTab());
             oTabs.addItem(this._buildHistoryTab());

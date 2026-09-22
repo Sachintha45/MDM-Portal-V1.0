@@ -900,14 +900,49 @@ sap.ui.define([
         },
 
         // ── Account Group Value Help ──────────────────────────────────
+        // Narrows the full account-group list down to the ones relevant to
+        // the currently selected BP role(s), by matching each role's
+        // account_scope (CUSTOMER / VENDOR / BOTH) against each account
+        // group's type (CUSTOMER / VENDOR). Falls back to the full,
+        // unfiltered list whenever the scope can't be pinned down to a
+        // single side — no roles picked yet, a BOTH-scoped role in the mix,
+        // or roles whose scopes disagree — so the user is never hidden an
+        // account group they might actually need.
+        _getRelevantAgItems: function () {
+            var aAllItems = this.getView().getModel("ag").getProperty("/items") || [];
+            var aRoleKeys = this._oRt.getProperty("/roleKeys") || [];
+            if (!aRoleKeys.length) { return aAllItems; }
+
+            var mAllowedTypes  = {};
+            var bUnrestricted  = false;
+            aRoleKeys.forEach(function (k) {
+                var sScope = (this._mRoleMeta[k] || {}).account_scope || "";
+                if (!sScope || sScope === "BOTH") {
+                    bUnrestricted = true;
+                } else {
+                    mAllowedTypes[sScope] = true;
+                }
+            }.bind(this));
+
+            if (bUnrestricted || Object.keys(mAllowedTypes).length !== 1) {
+                return aAllItems;
+            }
+            var aFiltered = aAllItems.filter(function (o) {
+                return !o.type || mAllowedTypes[o.type];
+            });
+            // Defensive: never present an empty dialog if the data doesn't
+            // actually line up (e.g. account groups with no type set).
+            return aFiltered.length ? aFiltered : aAllItems;
+        },
+
         onBpAgValueHelp: function () {
             var oView = this.getView();
             if (!this._oAgVHModel) {
                 this._oAgVHModel = new JSONModel({ items: [] });
             }
-            // Seed the VH list with all items (unfiltered)
-            this._oAgVHModel.setProperty("/items",
-                this.getView().getModel("ag").getProperty("/items"));
+            // Seed the VH list with only the account groups relevant to the
+            // currently selected role(s).
+            this._oAgVHModel.setProperty("/items", this._getRelevantAgItems());
 
             if (!this._oAgVHDialog) {
                 Fragment.load({
@@ -925,15 +960,14 @@ sap.ui.define([
                 // Reset search field
                 var oSearch = this._oAgVHDialog.getSubHeader().getContentMiddle()[0];
                 if (oSearch) { oSearch.setValue(""); }
-                this._oAgVHModel.setProperty("/items",
-                    this.getView().getModel("ag").getProperty("/items"));
+                this._oAgVHModel.setProperty("/items", this._getRelevantAgItems());
                 this._oAgVHDialog.open();
             }
         },
 
         onAgVHSearch: function (oEvent) {
             var sQuery   = oEvent.getParameter("newValue").toLowerCase();
-            var aAllItems = this.getView().getModel("ag").getProperty("/items") || [];
+            var aAllItems = this._getRelevantAgItems();
             var aFiltered = sQuery
                 ? aAllItems.filter(function (o) {
                     return o.key.toLowerCase().includes(sQuery) ||
