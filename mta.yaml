@@ -42,6 +42,7 @@ modules:
     requires:
       - name: mdm-portal-uaa
       - name: mdm-portal-destination
+      - name: mdm-portal-connectivity
     provides:
       - name: srv-api
         properties:
@@ -84,3 +85,16 @@ resources:
     type: org.cloudfoundry.existing-service
     parameters:
       service-name: desination
+
+  # ── Connectivity service — routes calls to on-premise destinations
+  # (ProxyType OnPremise) through the Cloud Connector. Needed for
+  # the S4H_HTTP destination, which srv/integration-service.js uses to
+  # create Business Partners in S/4HANA. Without this binding, a call to
+  # an on-premise destination fails even when the destination itself and
+  # the Cloud Connector are set up correctly.
+  - name: mdm-portal-connectivity
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: connectivity
+      service-plan: lite
+      service-name: mdm-portal-connectivity

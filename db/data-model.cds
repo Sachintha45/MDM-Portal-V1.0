@@ -75,7 +75,7 @@ type NotificationChannel    : String(10) @assert.range enum { EMAIL; IN_APP; };
 type NotificationStatus     : String(10) @assert.range enum { PENDING; SENT; FAILED; };
 type OperatorType           : String(10) @assert.range enum { EQ; NE; ![IN]; ![ANY]; BETWEEN; };
 
-type CRRequestType          : String(10) @assert.range enum { CREATE; CHANGE; EXTEND; };
+type CRRequestType          : String(10) @assert.range enum { CREATE; CHANGE; EXTEND; DELETE; };
 type CRPriority             : String(10) @assert.range enum { NORMAL; HIGH; };
 type CRStatus               : String(20) @assert.range enum { DRAFT; IN_APPROVAL; APPROVED; REJECTED; POSTED; POSTING_FAILED; CANCELLED; SENT_BACK; };
 

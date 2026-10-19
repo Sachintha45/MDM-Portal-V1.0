@@ -921,7 +921,7 @@ sap.ui.define([
                 : "—";
             var mHeaderStatusState = {
                 DRAFT: "None", IN_APPROVAL: "Warning", APPROVED: "Success", POSTED: "Success",
-                REJECTED: "Error", SENT_BACK: "Warning", CANCELLED: "None"
+                REJECTED: "Error", SENT_BACK: "Warning", CANCELLED: "None", POSTING_FAILED: "Error"
             };
 
             oBox.addItem(new Panel({
@@ -967,7 +967,9 @@ sap.ui.define([
                 oFlow.addItem(that._buildRsStageBox(aStageSteps, idx === iCurrentStageIdx));
             });
 
-            if (sHeaderStatus === "APPROVED" || sHeaderStatus === "POSTED") {
+            // POSTING_FAILED: every approval is done, only the S/4HANA
+            // posting afterwards failed — the approval flow itself is complete.
+            if (sHeaderStatus === "APPROVED" || sHeaderStatus === "POSTED" || sHeaderStatus === "POSTING_FAILED") {
                 oFlow.addItem(that._buildRsFlowArrow("All done"));
                 oFlow.addItem(that._buildRsTerminalBox("Approved", "sap-icon://sys-enter-2", "Positive", "sapMDMFlowApproved"));
             } else if (sHeaderStatus === "REJECTED") {

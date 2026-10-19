@@ -33,6 +33,14 @@
         "credentials": {
           "destination": "MDM_Workflow_Dest"
         }
+      },
+      "API_BUSINESS_PARTNER": {
+        "kind": "odata-v2",
+        "csrf": true,
+        "credentials": {
+          "destination": "S4H_HTTP",
+          "path": "/sap/opu/odata/sap/API_BUSINESS_PARTNER"
+        }
       }
     }
   }
