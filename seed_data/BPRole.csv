@@ -1,0 +1,5 @@
+role_id,description,master_data_type_master_data_type_id,account_scope,initial_bp_required,sequence,active
+GEN_DATA,General Data,CUSTOMER,CUSTOMER,false,1,true
+CUST_GEN,Customer General Data,CUSTOMER,CUSTOMER,false,2,true
+CUST_SLS,Customer Sales Data,CUSTOMER,CUSTOMER,false,3,true
+CUST_FI,Customer FI Data,CUSTOMER,CUSTOMER,false,4,true

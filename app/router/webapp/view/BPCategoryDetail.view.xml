@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mvc:View
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:core="sap.ui.core"
+    xmlns:l="sap.ui.layout"
+    controllerName="mdm.portal.controller.BPCategoryDetail"
+    displayBlock="true">
+
+    <Page busy="{view>/busy}" busyIndicatorDelay="0" id="detailPage" showHeader="false">
+        <content>
+            <VBox>
+                <Bar class="sapMPageHeader">
+                    <contentLeft>
+                        <Button icon="sap-icon://nav-back" type="Transparent" press=".onNavBack"/>
+                        <Breadcrumbs id="pageBreadcrumb" separatorStyle="Slash" class="sapUiTinyMarginBegin">
+                            <Link text="Configuration" press=".onNavBack"/>
+                            <Link text="BP Categories" press=".onNavBack"/>
+                        </Breadcrumbs>
+                    </contentLeft>
+                </Bar>
+            </VBox>
+
+            <VBox class="sapUiMediumMarginBeginEnd sapUiSmallMarginTop">
+                <HBox alignItems="Center">
+                    <core:Icon id="headerIcon" src="sap-icon://customer" size="2rem" color="Accent8"
+                               class="sapUiSmallMarginEnd"/>
+                    <VBox>
+                        <Title id="pageTitle" text="" level="H2" wrapping="false"/>
+                    </VBox>
+                </HBox>
+            </VBox>
+
+            <HBox class="sapUiTinyMarginTop sapUiMediumMarginBeginEnd">
+                <core:HTML content="&lt;hr style='border:none;border-top:1px solid var(--sapGroup_TitleBorderColor);margin:0 0 0.5rem 0;width:100%'/&gt;"/>
+            </HBox>
+
+            <IconTabBar id="detailTabs" select=".onTabSelect" expanded="true"
+                        class="sapUiResponsiveContentPadding">
+                <items>
+
+                    <!-- TAB 1 - General -->
+                    <IconTabFilter text="General" key="general" icon="sap-icon://hint">
+                        <VBox class="sapUiMediumMarginBeginEnd">
+                            <Title text="General" level="H4"
+                                   class="sapUiSmallMarginTop sapUiSmallMarginBottom"/>
+                            <l:Grid defaultSpan="L6 M6 S12" hSpacing="2">
+                                <l:content>
+                                    <VBox>
+                                        <Label text="Category Name" labelFor="inId"/>
+                                        <Input id="inId" value="{category_id}" editable="false"/>
+                                      
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Description" required="true" labelFor="inDescription"/>
+                                        <Input id="inDescription" value="{description}"
+                                               maxLength="100" liveChange=".onFieldChange"/>
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Icon" labelFor="inIcon"/>
+                                        <Input id="inIcon" value="{icon}" placeholder="e.g. sap-icon://person-placeholder"
+                                               maxLength="40" liveChange=".onFieldChange"/>
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Active" labelFor="swActive"/>
+                                        <Switch id="swActive" state="{active}"
+                                                customTextOn="Yes" customTextOff="No"
+                                                change=".onFieldChange"/>
+                                    </VBox>
+                                    <VBox class="sapUiSmallMarginTop">
+                                        <Label text="Applicable To" labelFor="inApplicable"/>
+                                        <Input id="inApplicable" value="Customer · Vendor · Both" editable="false"/>
+                                      
+                                    </VBox>
+                                </l:content>
+                            </l:Grid>
+                           
+                        </VBox>
+                    </IconTabFilter>
+
+                    <!-- TAB 2 - Field Assignments -->
+                    <IconTabFilter id="tabFields" text="Field Assignments" key="fields"
+                                   count="{view>/fieldCount}" icon="sap-icon://form">
+                        <VBox>
+                            <Toolbar class="sapUiSmallMarginTop">
+                                <Title text="Category Field Assignments" level="H4"/>
+                                <ToolbarSpacer/>
+                                <Button text="Assign Field" icon="sap-icon://add" type="Transparent"
+                                        press=".onAssignField"/>
+                            </Toolbar>
+                            <Table id="fieldsTable" noDataText="No fields assigned to this category yet."
+                                   fixedLayout="true" alternateRowColors="true"
+                                   items="{assigned>/items}">
+                                <columns>
+                                    <Column width="7rem"><Label text="Field Name" design="Bold"/></Column>
+                                    <Column><Label text="Description" design="Bold"/></Column>
+                                    <Column width="7rem"><Label text="Main Group" design="Bold"/></Column>
+                                    <Column width="7rem"><Label text="Sub Group" design="Bold"/></Column>
+                                    <Column width="6rem"><Label text="Data Type" design="Bold"/></Column>
+                                    <Column width="6rem" hAlign="Center"><Label text="Field Status" design="Bold"/></Column>
+                                    <Column width="7rem" hAlign="Center"><Label text="Is Multiple Value" design="Bold"/></Column>
+                                    <Column width="4rem" hAlign="End"><Label text="Seq" design="Bold"/></Column>
+                                    <Column width="3rem" hAlign="End"/>
+                                </columns>
+                                <items>
+                                    <ColumnListItem type="Active" press=".onFieldRowPress">
+                                        <cells>
+                                            <Link text="{assigned>field_id}" press=".onFieldLinkPress" wrapping="false"/>
+                                            <Text text="{assigned>description}" wrapping="false"/>
+                                            <Text text="{assigned>main_group}" wrapping="false"/>
+                                            <Text text="{assigned>sub_group}" wrapping="false"/>
+                                            <Text text="{assigned>data_type}" wrapping="false"/>
+                                            <ObjectStatus
+                                                text="{path: 'assigned>field_status', formatter: '.formatStatusText'}"
+                                                state="{path: 'assigned>field_status', formatter: '.formatStatusState'}"/>
+                                            <ObjectStatus
+                                                text="{path: 'assigned>multiple_values', formatter: '.formatMultipleValues'}"
+                                                state="{path: 'assigned>multiple_values', formatter: '.formatMultipleValuesState'}"/>
+                                            <Text text="{assigned>sequence}" wrapping="false"/>
+                                            <Button icon="sap-icon://decline" type="Transparent"
+                                                    tooltip="Remove from this category"
+                                                    press=".onRemoveAssignedField"/>
+                                        </cells>
+                                    </ColumnListItem>
+                                </items>
+                            </Table>
+                            <VBox class="sapUiSmallMargin">
+                               
+                            </VBox>
+                        </VBox>
+                    </IconTabFilter>
+
+                    <!-- TAB 3 - Change Log -->
+                                        <IconTabFilter text="Change Log" key="changelog" icon="sap-icon://history">
+                        <VBox class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop sapUiSmallMarginBottom">
+                            <Title text="Record Information" level="H5" class="sapUiTinyMarginBottom"/>
+                            <HBox wrap="Wrap">
+                                <VBox width="12rem" class="sapUiTinyMarginEnd">
+                                    <Label text="Created On" design="Bold"/>
+                                    <Text id="clCreatedAt" text="{view>/clCreatedAt}" wrapping="false"/>
+                                </VBox>
+                                <VBox width="12rem" class="sapUiTinyMarginEnd">
+                                    <Label text="Created By" design="Bold"/>
+                                    <Text id="clCreatedBy" text="{view>/clCreatedBy}" wrapping="false"/>
+                                </VBox>
+                                <VBox width="12rem" class="sapUiTinyMarginEnd">
+                                    <Label text="Last Modified On" design="Bold"/>
+                                    <Text id="clModifiedAt" text="{view>/clModifiedAt}" wrapping="false"/>
+                                </VBox>
+                                <VBox width="12rem">
+                                    <Label text="Last Modified By" design="Bold"/>
+                                    <Text id="clModifiedBy" text="{view>/clModifiedBy}" wrapping="false"/>
+                                </VBox>
+                            </HBox>
+                        </VBox>
+                        <Table id="logTable"
+                               noDataText="No changes recorded yet."
+                               alternateRowColors="true"
+                               items="{path: '/AuditLogs', suspended: true}">
+                            <columns>
+                                <Column width="11rem"><Label text="Timestamp" design="Bold"/></Column>
+                                <Column width="9rem"><Label text="User" design="Bold"/></Column>
+                                <Column width="7rem"><Label text="Action" design="Bold"/></Column>
+                                <Column><Label text="Before" design="Bold"/></Column>
+                                <Column><Label text="After" design="Bold"/></Column>
+                            </columns>
+                            <items>
+                                <ColumnListItem>
+                                    <cells>
+                                        <Text text="{acted_at}" wrapping="false"/>
+                                        <Text text="{actor}"    wrapping="false"/>
+                                        <ObjectStatus
+                                            text="{action}"
+                                            state="{= ${action} === 'CREATE' ? 'Success' :
+                                                   ${action} === 'DELETE' ? 'Error'   :
+                                                   ${action} === 'UPDATE' ? 'Warning' : 'None'}"/>
+                                        <Text text="{before_value}" maxLines="3"/>
+                                        <Text text="{after_value}"  maxLines="3"/>
+                                    </cells>
+                                </ColumnListItem>
+                            </items>
+                        </Table>
+                    </IconTabFilter>
+
+                </items>
+            </IconTabBar>
+        </content>
+
+        <footer>
+            <OverflowToolbar>
+                <ToolbarSpacer/>
+                <Button id="btnCancel" text="Cancel" type="Default" press=".onCancel"/>
+                <Button id="btnSave" text="Save" type="Emphasized" press=".onSave"/>
+            </OverflowToolbar>
+        </footer>
+    </Page>
+</mvc:View>

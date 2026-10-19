@@ -1,0 +1,199 @@
+sap.ui.define([
+    "sap/ui/core/Fragment",
+    "sap/ui/model/json/JSONModel",
+    "sap/m/MessageToast",
+    "sap/m/MessageBox"
+], function (Fragment, JSONModel, MessageToast, MessageBox) {
+    "use strict";
+
+    /**
+     * Reusable "View / Edit Field Assignment" helper.
+     *
+     * Lets the user open an already-assigned field from a Field Assignment
+     * table, see its master-data info (description, data type, group) for
+     * context, and edit the assignment-specific attributes (status, sequence,
+     * default value, and — where applicable — read-only) without leaving the
+     * page or losing track of which role/category/account group they're on.
+     *
+     * Each detail controller mixes these methods in and calls
+     * this._openFieldAssignmentEdit(oConfig) where oConfig is:
+     *   {
+     *     collection   : "/BPRoleFields",          // junction collection
+     *     fkName       : "role_role_id",            // FK column on the junction
+     *     fkValue      : "FLVN01",                  // parent key value
+     *     fieldId      : "BUKRS",                   // field_id of the row clicked
+     *     updateGroupId: "bpRoleUpdate",             // batch group used by the detail
+     *     showReadOnly : true,                       // only BPRoleField has read_only
+     *     onDone       : function () { ... }          // reload callback after save
+     *   }
+     */
+    return {
+
+        _openFieldAssignmentEdit: function (oConfig) {
+            this._fieldEditCfg = oConfig;
+
+            var oFieldEdit = this.getView().getModel("fieldEdit");
+            if (!oFieldEdit) {
+                oFieldEdit = new JSONModel({ busy: false });
+                this.getView().setModel(oFieldEdit, "fieldEdit");
+            }
+
+            var fnAfterLoad = function () {
+                this._loadFieldAssignment().then(function () {
+                    this._oFieldEditDialog.open();
+                }.bind(this)).catch(function () {
+                    // Already reported via MessageBox in _loadFieldAssignment;
+                    // just don't open the dialog on top of that error.
+                });
+            }.bind(this);
+
+            if (this._oFieldEditDialog) {
+                fnAfterLoad();
+                return;
+            }
+
+            Fragment.load({
+                id        : this.getView().getId(),
+                name      : "mdm.portal.view.Fragment.FieldAssignmentEditDialog",
+                controller: this
+            }).then(function (oDialog) {
+                this._oFieldEditDialog = oDialog;
+                this.getView().addDependent(oDialog);
+                fnAfterLoad();
+            }.bind(this));
+        },
+
+        // Reads the current assignment row plus the field's master-data info
+        // for display. The bound context created here is kept (this._oFieldEditCtx)
+        // and reused on Save, the same read-then-patch pattern used elsewhere
+        // in these detail controllers.
+        _loadFieldAssignment: function () {
+            var oCfg       = this._fieldEditCfg;
+            var oModel     = this.getOwnerComponent().getModel();
+            var oFieldEdit = this.getView().getModel("fieldEdit");
+
+            oFieldEdit.setProperty("/busy", true);
+
+            var sPath = oCfg.collection + "(" +
+                oCfg.fkName + "='" + oCfg.fkValue + "'," +
+                "field_field_id='" + oCfg.fieldId + "')";
+
+            this._oFieldEditCtx = oModel.bindContext(sPath, null, {
+                $$updateGroupId: oCfg.updateGroupId
+            }).getBoundContext();
+
+            var pAssignment = this._oFieldEditCtx.requestObject();
+            // A field can still be assigned here even if its Field Master
+            // catalog entry was since removed, renamed, or never created
+            // (a data-integrity gap, not something this dialog can fix) \u2014
+            // don't let that sink the whole dialog. Caught locally so a
+            // missing catalog entry falls back to placeholders instead of
+            // rejecting the outer Promise.all and leaving the dialog
+            // completely blank with no explanation.
+            var pFieldInfo  = oModel.bindContext("/FieldMasters('" + oCfg.fieldId + "')")
+                .requestObject()
+                .catch(function () { return null; });
+
+            return Promise.all([pAssignment, pFieldInfo]).then(function (aRes) {
+                var oAssign     = aRes[0] || {};
+                var oField      = aRes[1];
+                var bFieldFound = !!oField;
+                oField = oField || {};
+                var sMain   = oField.main_group_group_id || "";
+                var sSub    = oField.sub_group_group_id  || "";
+                oFieldEdit.setData({
+                    field_id        : oCfg.fieldId,
+                    description     : bFieldFound ? (oField.description  || "") : "",
+                    data_type       : bFieldFound ? (oField.data_type    || "\u2014") : "\u2014",
+                    display_type    : bFieldFound ? (oField.display_type || "\u2014") : "\u2014",
+                    group_path      : bFieldFound
+                        ? ((sMain + (sSub && sSub !== sMain ? " \u25b8 " + sSub : "")) || "\u2014")
+                        : "\u2014",
+                    fieldNotFound   : !bFieldFound,
+                    field_status    : oAssign.field_status,
+                    sequence        : oAssign.sequence,
+                    default_value   : oAssign.default_value || "",
+                    read_only       : !!oAssign.read_only,
+                    multiple_values : !!oAssign.multiple_values,
+                    showReadOnly        : !!oCfg.showReadOnly,
+                    showMultipleValues  : !!oCfg.showMultipleValues,
+                    busy            : false
+                });
+            }).catch(function (e) {
+                oFieldEdit.setProperty("/busy", false);
+                MessageBox.error("Could not load field assignment: " + (e.message || "Unknown error"));
+                // Re-throw so the caller's .then(...open the dialog...) is
+                // skipped too \u2014 previously the dialog still opened, empty,
+                // right after this error box, which is what made the bug
+                // look like "no details show at all" rather than a
+                // reported error.
+                return Promise.reject(e);
+            });
+        },
+
+        onFieldAssignmentSave: function () {
+            var oCfg   = this._fieldEditCfg;
+            var oModel = this.getOwnerComponent().getModel();
+            var oData  = this.getView().getModel("fieldEdit").getData();
+            var oCtx   = this._oFieldEditCtx;
+
+            if (!oData.field_status) {
+                MessageBox.error("Field Status is required.");
+                return;
+            }
+            var iSeq = parseInt(oData.sequence, 10);
+            if (isNaN(iSeq)) {
+                MessageBox.error("A valid Sequence number is required.");
+                return;
+            }
+
+            oCtx.setProperty("field_status", oData.field_status);
+            oCtx.setProperty("sequence", iSeq);
+            oCtx.setProperty("default_value", oData.default_value || null);
+            if (oCfg.showReadOnly) {
+                oCtx.setProperty("read_only", !!oData.read_only);
+            }
+            if (oCfg.showMultipleValues) {
+                oCtx.setProperty("multiple_values", !!oData.multiple_values);
+            }
+
+            oModel.submitBatch(oCfg.updateGroupId)
+                .then(function () {
+                    MessageToast.show("Field assignment saved.");
+                    this._oFieldEditDialog.close();
+                    if (typeof oCfg.onDone === "function") { oCfg.onDone(); }
+                }.bind(this))
+                .catch(function (e) {
+                    MessageBox.error("Could not save: " + (e.message || "Unknown error"));
+                }.bind(this));
+        },
+
+        onFieldAssignmentCancel: function () {
+            if (this._oFieldEditDialog) { this._oFieldEditDialog.close(); }
+        },
+
+        onFieldAssignmentRemove: function () {
+            var oCfg = this._fieldEditCfg;
+            var oData = this.getView().getModel("fieldEdit").getData();
+
+            MessageBox.confirm(
+                "Remove field \"" + oData.field_id + " \u2014 " + oData.description + "\" from this assignment?", {
+                title  : "Confirm Removal",
+                onClose: function (sAction) {
+                    if (sAction !== MessageBox.Action.OK) { return; }
+
+                    var oCtx = this._oFieldEditCtx;
+                    oCtx.delete("$auto")
+                        .then(function () {
+                            MessageToast.show("Field removed.");
+                            this._oFieldEditDialog.close();
+                            if (typeof oCfg.onDone === "function") { oCfg.onDone(); }
+                        }.bind(this))
+                        .catch(function (e) {
+                            MessageBox.error("Could not remove field: " + (e.message || "Unknown error"));
+                        }.bind(this));
+                }.bind(this)
+            });
+        }
+    };
+});

@@ -1,18 +1,119 @@
-value_table_id,description,source_table,output_key,output_desc,status
-COUNTRY,Country Codes,T005,code,description,ACTIVE
-CURRENCY,Currency Codes,TCURC,code,description,ACTIVE
-PAYMENT_TERMS,Payment Terms,T052,code,description,ACTIVE
-INDUSTRY,Industry Codes,T016,code,description,ACTIVE
-COMPANY_CODE,Company Codes,T001,code,description,ACTIVE
-SALES_ORG,Sales Organizations,TVKO,code,description,ACTIVE
-DIST_CHANNEL,Distribution Channels,TVTW,code,description,ACTIVE
-DIVISION,Divisions,TSPA,code,description,ACTIVE
-PLANT,Plants,T001W,code,description,ACTIVE
-PRICE_GROUP,Price Groups,T188,code,description,ACTIVE
-SALES_DISTRICT,Sales Districts,T171,code,description,ACTIVE
-INCOTERMS,Incoterms,TINC,code,description,ACTIVE
-ACCT_ASSMT_GRP,Account Assignment Groups,T681,code,description,ACTIVE
-TAX_CLASS,Tax Classifications,T007A,code,description,ACTIVE
-PAYMENT_METHOD,Payment Methods,T042Z,code,description,ACTIVE
-RECON_ACCT,Reconciliation Accounts,SKA1,code,description,ACTIVE
-CUSTOMER_GRP,Customer Groups,T151,code,description,ACTIVE
+value_table_id,description,source_table,input_1,input_2,input_3,output_key,output_desc,status
+COUNTRY,Country Codes,T005,,,,code,description,ACTIVE
+CURRENCY,Currency Codes,TCURC,,,,code,description,ACTIVE
+PAYMENT_TERMS,Payment Terms,T052,,,,code,description,ACTIVE
+INDUSTRY,Industry Codes,T016,,,,code,description,ACTIVE
+COMPANY_CODE,Company Codes,T001,,,,code,description,ACTIVE
+SALES_ORG,Sales Organizations,TVKO,,,,code,description,ACTIVE
+DIST_CHANNEL,Distribution Channels,TVTW,,,,code,description,ACTIVE
+DIVISION,Divisions,TSPA,,,,code,description,ACTIVE
+PLANT,Plants,T001W,,,,code,description,ACTIVE
+PRICE_GROUP,Price Groups,T188,,,,code,description,ACTIVE
+SALES_DISTRICT,Sales Districts,T171,,,,code,description,ACTIVE
+INCOTERMS,Incoterms,TINC,,,,code,description,ACTIVE
+ACCT_ASSMT_GRP,Account Assignment Groups,T681,,,,code,description,ACTIVE
+TAX_CLASS,Tax Classifications,T007A,,,,code,description,ACTIVE
+PAYMENT_METHOD,Payment Methods,T042Z,,,,code,description,ACTIVE
+RECON_ACCT,Reconciliation Accounts,SKA1,,,,code,description,ACTIVE
+CUSTOMER_GRP,Customer Groups,T151,,,,code,description,ACTIVE
+T005,T005,T005,,,,code,description,ACTIVE
+TSAD12,TSAD12,TSAD12,,,,code,description,ACTIVE
+T005S,T005S,T005S,,,,code,description,ACTIVE
+TTZZ,TTZZ,TTZZ,,,,code,description,ACTIVE
+TZONE,TZONE,TZONE,,,,code,description,ACTIVE
+TTXD,TTXD,TTXD,,,,code,description,ACTIVE
+TB019,TB019,TB019,,,,code,description,ACTIVE
+TB032,TB032,TB032,,,,code,description,ACTIVE
+BU_IND_SECTOR,BU_IND_SECTOR,BU_IND_SECTOR,,,,code,description,ACTIVE
+BU_TEXT100,BU_TEXT100,BU_TEXT100,,,,code,description,ACTIVE
+FKKBPTAXTYPE_F4H,FKKBPTAXTYPE_F4H,FKKBPTAXTYPE_F4H,,,,code,description,ACTIVE
+BU_ID_TYPE,BU_ID_TYPE,BU_ID_TYPE,,,,code,description,ACTIVE
+BU_TEXT40,BU_TEXT40,BU_TEXT40,,,,code,description,ACTIVE
+TB004,TB004,TB004,,,,code,description,ACTIVE
+TB037,TB037,TB037,,,,code,description,ACTIVE
+BU_PRINT_MODE,BU_PRINT_MODE,BU_PRINT_MODE,,,,code,description,ACTIVE
+BU_SOURCE,BU_SOURCE,BU_SOURCE,,,,code,description,ACTIVE
+TB033,TB033,TB033,,,,code,description,ACTIVE
+BU_CONTACT,BU_CONTACT,BU_CONTACT,,,,code,description,ACTIVE
+BP_IDTYP_ORG_TEC,BP_IDTYP_ORG_TEC,BP_IDTYP_ORG_TEC,,,,code,description,ACTIVE
+TP18T,TP18T,TP18T,,,,code,description,ACTIVE
+TFACT,TFACT,TFACT,,,,code,description,ACTIVE
+T880,T880,T880,,,,code,description,ACTIVE
+TP24,TP24,TP24,,,,code,description,ACTIVE
+TP13T,TP13T,TP13T,,,,code,description,ACTIVE
+T005T,T005T,T005T,,,,code,description,ACTIVE
+T005U,T005U,T005U,,,,code,description,ACTIVE
+TCURT,TCURT,TCURT,,,,code,description,ACTIVE
+BP_BAL_FLG,BP_BAL_FLG,BP_BAL_FLG,,,,code,description,ACTIVE
+TXT30_077T,TXT30_077T,TXT30_077T,,,,code,description,ACTIVE
+M_KREDM,M_KREDM,M_KREDM,,,,code,description,ACTIVE
+M_DEBIA,M_DEBIA,M_DEBIA,,,,code,description,ACTIVE
+T009T,T009T,T009T,,,,code,description,ACTIVE
+TNLST,TNLST,TNLST,,,,code,description,ACTIVE
+TKUKT,TKUKT,TKUKT,,,,code,description,ACTIVE
+TBRC,TBRC,TBRC,,,,code,description,ACTIVE
+J_1BCRTN,J_1BCRTN,J_1BCRTN,,,,code,description,ACTIVE
+TVK1,TVK1,TVK1,,,,code,description,ACTIVE
+TVK2,TVK2,TVK2,,,,code,description,ACTIVE
+TVK3,TVK3,TVK3,,,,code,description,ACTIVE
+TVK4,TVK4,TVK4,,,,code,description,ACTIVE
+TVK5,TVK5,TVK5,,,,code,description,ACTIVE
+TVK6,TVK6,TVK6,,,,code,description,ACTIVE
+TVK7,TVK7,TVK7,,,,code,description,ACTIVE
+TVK8,TVK8,TVK8,,,,code,description,ACTIVE
+TVK9,TVK9,TVK9,,,,code,description,ACTIVE
+TVK0,TVK0,TVK0,,,,code,description,ACTIVE
+TVKGG,TVKGG,TVKGG,,,,code,description,ACTIVE
+TFACD,TFACD,TFACD,,,,code,description,ACTIVE
+SAPLBUPA_DIALOG_JOEL,SAPLBUPA_DIALOG_JOEL,SAPLBUPA_DIALOG_JOEL,,,,code,description,ACTIVE
+TSAB,TSAB,TSAB,,,,code,description,ACTIVE
+TSABT,TSABT,TSABT,,,,code,description,ACTIVE
+SAPLBUPA_DIALOG_JOEL(Program),SAPLBUPA_DIALOG_JOEL(Program),SAPLBUPA_DIALOG_JOEL(Program),,,,code,description,ACTIVE
+VKORG,VKORG,VKORG,,,,code,description,ACTIVE
+T171,T171,T171,,,,code,description,ACTIVE
+T151,T151,T151,,,,code,description,ACTIVE
+VKBUR,VKBUR,VKBUR,,,,code,description,ACTIVE
+VKGRP,VKGRP,VKGRP,,,,code,description,ACTIVE
+TPVD,TPVD,TPVD,,,,code,description,ACTIVE
+TCURC,TCURC,TCURC,,,,code,description,ACTIVE
+TCURV,TCURV,TCURV,,,,code,description,ACTIVE
+T188,T188,T188,,,,code,description,ACTIVE
+TVKD,TVKD,TVKD,,,,code,description,ACTIVE
+T189,T189,T189,,,,code,description,ACTIVE
+TVSD,TVSD,TVSD,,,,code,description,ACTIVE
+TPRIO,TPRIO,TPRIO,,,,code,description,ACTIVE
+TVSB,TVSB,TVSB,,,,code,description,ACTIVE
+KZTLF,KZTLF,KZTLF,,,,code,description,ACTIVE
+INCO1,INCO1,INCO1,,,,code,description,ACTIVE
+T052,T052,T052,,,,code,description,ACTIVE
+TVKT,TVKT,TVKT,,,,code,description,ACTIVE
+T685A,T685A,T685A,,,,code,description,ACTIVE
+TAKLD,TAKLD,TAKLD,,,,code,description,ACTIVE
+T002,T002,T002,,,,code,description,ACTIVE
+NA_NACHA,NA_NACHA,NA_NACHA,,,,code,description,ACTIVE
+NA_VSZTP,NA_VSZTP,NA_VSZTP,,,,code,description,ACTIVE
+CVIS_F4_PARTNER_FUNCTIONS,CVIS_F4_PARTNER_FUNCTIONS,CVIS_F4_PARTNER_FUNCTIONS,,,,code,description,ACTIVE
+V_CONTACT,V_CONTACT,V_CONTACT,,,,code,description,ACTIVE
+TVAST,TVAST,TVAST,,,,code,description,ACTIVE
+TVLS,TVLS,TVLS,,,,code,description,ACTIVE
+TVFS,TVFS,TVFS,,,,code,description,ACTIVE
+VTWEG,VTWEG,VTWEG,,,,code,description,ACTIVE
+SPART,SPART,SPART,,,,code,description,ACTIVE
+SKB1,SKB1,SKB1,,,,code,description,ACTIVE
+TZUN,TZUN,TZUN,,,,code,description,ACTIVE
+T035,T035,T035,,,,code,description,ACTIVE
+T056,T056,T056,,,,code,description,ACTIVE
+M_PREMN,M_PREMN,M_PREMN,,,,code,description,ACTIVE
+TXT30_043T,TXT30_043T,TXT30_043T,,,,code,description,ACTIVE
+HBKID,HBKID,HBKID,,,,code,description,ACTIVE
+T008,T008,T008,,,,code,description,ACTIVE
+TZGR,TZGR,TZGR,,,,code,description,ACTIVE
+TCESSION,TCESSION,TCESSION,,,,code,description,ACTIVE
+T053V,T053V,T053V,,,,code,description,ACTIVE
+T053A,T053A,T053A,,,,code,description,ACTIVE
+T047A,T047A,T047A,,,,code,description,ACTIVE
+T040S,T040S,T040S,,,,code,description,ACTIVE
+M_DEBID,M_DEBID,M_DEBID,,,,code,description,ACTIVE
+T047R,T047R,T047R,,,,code,description,ACTIVE
+T048K,T048K,T048K,,,,code,description,ACTIVE
+WITHT,WITHT,WITHT,,,,code,description,ACTIVE

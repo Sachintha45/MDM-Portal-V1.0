@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mvc:View
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:core="sap.ui.core"
+    xmlns:l="sap.ui.layout"
+    controllerName="mdm.portal.controller.ReleaseCriteriaDetail"
+    displayBlock="true">
+
+    <Page busy="{view>/busy}" busyIndicatorDelay="0" id="detailPage" showHeader="false">
+
+        <content>
+            <!-- Top bar with breadcrumb -->
+            <VBox>
+                <Bar class="sapMPageHeader">
+                    <contentLeft>
+                        <Button icon="sap-icon://nav-back" type="Transparent" press=".onNavBack"/>
+                        <Breadcrumbs id="pageBreadcrumb" separatorStyle="Slash" class="sapUiTinyMarginBegin">
+                            <Link text="Release Strategy" press=".onNavBack"/>
+                            <Link text="Release Criteria" press=".onNavBack"/>
+                        </Breadcrumbs>
+                    </contentLeft>
+                </Bar>
+            </VBox>
+
+            <!-- Page heading -->
+            <VBox class="sapUiMediumMarginBeginEnd sapUiSmallMarginTop">
+                <HBox alignItems="Center">
+                    <core:Icon src="sap-icon://filter-fields" size="2rem" color="Accent8"
+                               class="sapUiSmallMarginEnd"/>
+                    <VBox>
+                        <Title id="pageTitle" text="" level="H2" wrapping="false"/>
+                    </VBox>
+                </HBox>
+                <!-- <HBox class="sapUiTinyMarginTop">
+                    <ObjectAttribute id="attrStatus"   title="Status"     text=""/>
+                    <ObjectAttribute id="attrCreated"  title="Created By" text="" class="sapUiSmallMarginBegin"/>
+                    <ObjectAttribute id="attrDate"     title="Created On" text="" class="sapUiSmallMarginBegin"/>
+                </HBox> -->
+            </VBox>
+
+            <HBox class="sapUiTinyMarginTop sapUiMediumMarginBeginEnd">
+                <core:HTML content="&lt;hr style='border:none;border-top:1px solid var(--sapGroup_TitleBorderColor);margin:0 0 0.5rem 0;width:100%'/&gt;"/>
+            </HBox>
+
+            <!-- Icon Tab Bar -->
+            <IconTabBar id="detailTabs" select=".onTabSelect" expanded="true"
+                        class="sapUiResponsiveContentPadding">
+                <items>
+
+                    <!-- TAB 1 - General -->
+                    <IconTabFilter text="General" key="general" icon="sap-icon://hint">
+                        <VBox class="sapUiMediumMarginBeginEnd">
+                            <Title text="General Properties" level="H4"
+                                   class="sapUiSmallMarginTop sapUiSmallMarginBottom"/>
+                            <l:Grid defaultSpan="L6 M6 S12" hSpacing="2">
+                                <l:content>
+                                    <VBox>
+                                        <Label text="Criteria ID" labelFor="inId"/>
+                                        <Input id="inId" value="{characteristic_id}"
+                                               editable="false"
+                                               maxLength="20"/>
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Description" required="true" labelFor="inDescription"/>
+                                        <Input id="inDescription" value="{description}" placeholder="e.g. Sales Organisation"
+                                               maxLength="100" liveChange=".onFieldChange"/>
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Applies To" required="true" labelFor="selAppliesTo"/>
+                                        <Select id="selAppliesTo" width="100%" change=".onFieldChange" forceSelection="false"
+                                                items="{path: '/MasterDataTypes', sorter: {path: 'sequence'}}">
+                                            <core:Item key="{master_data_type_id}" text="{description}"/>
+                                        </Select>
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Source Field" required="true" labelFor="selField"/>
+                                        <Select id="selField" width="100%" change=".onFieldChange" forceSelection="false"
+                                                items="{path: '/FieldMasters', sorter: {path: 'field_id'}}">
+                                            <core:Item key="{field_id}" text="{field_id} — {description}"/>
+                                        </Select>
+
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Data Type" required="true" labelFor="selDataType"/>
+                                        <Select id="selDataType" width="100%" change=".onFieldChange" forceSelection="false">
+                                            <core:Item key="STRING"  text="String"/>
+                                            <core:Item key="INTEGER" text="Integer"/>
+                                        </Select>
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Active"/>
+                                        <Switch id="swActive" state="false" change=".onFieldChange"/>
+                                    </VBox>
+                                </l:content>
+                            </l:Grid>
+                            
+                        </VBox>
+                    </IconTabFilter>
+
+                    <!-- TAB 2 - Allowed Values -->
+                    <IconTabFilter id="tabValues" text="Allowed Values" key="values"
+                                   count="{view>/valueCount}" icon="sap-icon://list">
+                        <VBox class="sapUiMediumMarginBeginEnd">
+                            <Toolbar class="sapUiSmallMarginTop">
+                                <Title text="Allowed Values" level="H4"/>
+                                <ToolbarSpacer/>
+                                <Button text="Add Value" icon="sap-icon://add" type="Transparent" press=".onAddValue"/>
+                            </Toolbar>
+                           
+                            <Table id="valuesTable" noDataText="No allowed values defined yet."
+                                   fixedLayout="true" alternateRowColors="true"
+                                   items="{path: 'values', sorter: {path: 'counter'}, parameters: {$count: true, $$updateGroupId: 'releaseCriteriaValuesUpdate'}}">
+                                <columns>
+                                    <Column width="6rem"><Label text="Type" design="Bold"/></Column>
+                                    <Column width="10rem"><Label text="Value" design="Bold"/></Column>
+                                    <Column><Label text="Description" design="Bold"/></Column>
+                                    <Column width="3rem" hAlign="End"/>
+                                </columns>
+                                <items>
+                                    <ColumnListItem type="Active" press=".onValueRowPress">
+                                        <cells>
+                                            <ObjectStatus text="{= ${operator} === 'BETWEEN' ? 'Range' : 'Single'}"
+                                                          state="{= ${operator} === 'BETWEEN' ? 'Information' : 'None'}"/>
+                                            <ObjectIdentifier text="{= ${operator} === 'BETWEEN' ? ${value_from} + ' \u2013 ' + ${value_to} : ${value_from} }"/>
+                                            <Text text="{description}" wrapping="false"/>
+                                            <Button icon="sap-icon://delete" type="Transparent"
+                                                    tooltip="Delete value" press=".onDeleteValue"/>
+                                        </cells>
+                                    </ColumnListItem>
+                                </items>
+                            </Table>
+                        </VBox>
+                    </IconTabFilter>
+
+                    <!-- TAB 3 - Used By Strategies -->
+                    <IconTabFilter id="tabUsage" text="Used By Strategies" key="usage"
+                                   count="{view>/usageCount}" icon="sap-icon://chain-link">
+                        <VBox class="sapUiMediumMarginBeginEnd">
+                            <Toolbar class="sapUiSmallMarginTop">
+                                <Title text="Release Strategies Using This Criteria" level="H4"/>
+                                <ToolbarSpacer/>
+                            </Toolbar>
+                            <Table id="usageTable" noDataText="Not used by any release strategy yet."
+                                   fixedLayout="true" alternateRowColors="true"
+                                   items="{usage>/items}">
+                                <columns>
+                                    <Column width="8rem"><Label text="Strategy ID" design="Bold"/></Column>
+                                    <Column><Label text="Description" design="Bold"/></Column>
+                                    <Column width="10rem"><Label text="Applies To" design="Bold"/></Column>
+                                    <Column width="6rem" hAlign="Center"><Label text="Status" design="Bold"/></Column>
+                                </columns>
+                                <items>
+                                    <ColumnListItem>
+                                        <cells>
+                                            <ObjectIdentifier text="{usage>strategy_id}"/>
+                                            <Text text="{usage>description}" wrapping="false"/>
+                                            <Text text="{= ${usage>master_data_type} === 'BUSINESS PARTNER' ? 'Business Partner' : ${usage>master_data_type}}" wrapping="false"/>
+                                            <ObjectStatus text="{= ${usage>active} ? 'Active' : 'Inactive'}"
+                                                          state="{= ${usage>active} ? 'Success' : 'Error'}"/>
+                                        </cells>
+                                    </ColumnListItem>
+                                </items>
+                            </Table>
+                           
+                        </VBox>
+                    </IconTabFilter>
+
+                    <!-- TAB 4 - Change Log -->
+                    <IconTabFilter text="Change Log" key="changelog" icon="sap-icon://history">
+                        <VBox class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop sapUiSmallMarginBottom">
+                            <Title text="Record Info" level="H5" class="sapUiTinyMarginBottom"/>
+                           
+                        </VBox>
+                        <Table id="logTable"
+                               noDataText="No changes recorded yet."
+                               alternateRowColors="true"
+                               items="{path: '/AuditLogs', suspended: true}">
+                            <columns>
+                                <Column width="11rem"><Label text="Timestamp" design="Bold"/></Column>
+                                <Column width="9rem"><Label text="User" design="Bold"/></Column>
+                                <Column width="7rem"><Label text="Action" design="Bold"/></Column>
+                                <Column><Label text="Before" design="Bold"/></Column>
+                                <Column><Label text="After" design="Bold"/></Column>
+                            </columns>
+                            <items>
+                                <ColumnListItem>
+                                    <cells>
+                                        <Text text="{acted_at}" wrapping="false"/>
+                                        <Text text="{actor}"    wrapping="false"/>
+                                        <ObjectStatus
+                                            text="{action}"
+                                            state="{= ${action} === 'CREATE' ? 'Success' :
+                                                   ${action} === 'DELETE' ? 'Error'   :
+                                                   ${action} === 'UPDATE' ? 'Warning' : 'None'}"/>
+                                        <Text text="{before_value}" maxLines="3"/>
+                                        <Text text="{after_value}"  maxLines="3"/>
+                                    </cells>
+                                </ColumnListItem>
+                            </items>
+                        </Table>
+                    </IconTabFilter>
+
+                </items>
+            </IconTabBar>
+        </content>
+
+        <footer>
+            <OverflowToolbar>
+                <ToolbarSpacer/>
+                <Button id="btnCancel" text="Cancel" type="Default" press=".onCancel"/>
+                <Button id="btnSave" text="Save" type="Emphasized" press=".onSave"/>
+            </OverflowToolbar>
+        </footer>
+
+    </Page>
+</mvc:View>
