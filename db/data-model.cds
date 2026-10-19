@@ -91,7 +91,7 @@ entity MasterDataType : managed {
 }
 
 entity FieldGroup : managed {
-    key group_id            : String(20);
+    key group_id            : String(100);
         parent_group_id     : Association to FieldGroup;
         master_data_type    : Association to MasterDataType not null;
         description         : String(100) not null;
@@ -101,7 +101,7 @@ entity FieldGroup : managed {
 }
 
 entity ValueTable : managed {
-    key value_table_id  : String(20);
+    key value_table_id  : String(100);
         description     : String(100) not null;
         source_table    : String(60)  not null;
         input_1         : String(40);

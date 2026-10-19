@@ -1,0 +1,914 @@
+sap.ui.define([
+    "sap/ui/core/mvc/Controller",
+    "sap/ui/model/json/JSONModel",
+    "sap/m/MessageBox",
+    "sap/m/MessageToast",
+    "sap/m/MessageStrip",
+    "sap/m/IconTabFilter",
+    "sap/m/SegmentedButtonItem",
+    "sap/m/Panel",
+    "sap/m/Title",
+    "sap/m/Label",
+    "sap/m/Text",
+    "sap/m/ObjectStatus",
+    "sap/m/Table",
+    "sap/m/Column",
+    "sap/m/ColumnListItem",
+    "sap/m/ObjectIdentifier",
+    "sap/m/VBox",
+    "sap/m/HBox",
+    "sap/m/Dialog",
+    "sap/m/TextArea",
+    "sap/m/Button",
+    "sap/m/Input",
+    "sap/ui/core/Icon",
+    "mdm/portal/util/ApprovalHelper"
+], function (
+    Controller, JSONModel, MessageBox, MessageToast, MessageStrip,
+    IconTabFilter, SegmentedButtonItem, Panel, Title, Label, Text, ObjectStatus,
+    Table, Column, ColumnListItem, ObjectIdentifier,
+    VBox, HBox, Dialog, TextArea, Button, Input, Icon,
+    ApprovalHelper
+) {
+    "use strict";
+
+    return Controller.extend("mdm.portal.controller.ApprovalDetail", {
+
+        onInit: function () {
+            this._oViewModel = new JSONModel({
+                busy              : false,
+                crId              : "",
+                subtitle          : "",
+                status            : "",
+                actionable        : false,
+                roleCount         : 0,
+                infoBannerText    : "",
+                infoBannerVisible : false
+            });
+            this.getView().setModel(this._oViewModel, "view");
+
+            this._mFieldMeta = {};
+            this._mGroupMeta = {};
+            this._mRoleMeta  = {};
+            this._mReleaseCodeMeta = {};
+
+            var oRouter = this.getOwnerComponent().getRouter();
+            oRouter.getRoute("approvalDetail").attachPatternMatched(this._onRouteMatched, this);
+        },
+
+        _onRouteMatched: function (oEvent) {
+            var oArgs = oEvent.getParameter("arguments");
+            this._sCrId = decodeURIComponent(oArgs.crId);
+            this._iStepNumber = parseInt(oArgs.stepNumber, 10);
+            this._loadAll();
+        },
+
+        // ── Load everything ──────────────────────────────────────────
+
+        _loadAll: function () {
+            var oVm    = this._oViewModel;
+            var oModel = this.getOwnerComponent().getModel();
+            var sBase  = oModel.getServiceUrl().replace(/\/$/, "");
+            var sCrKey = "'" + encodeURIComponent(this._sCrId) + "'";
+            var that   = this;
+
+            oVm.setProperty("/busy", true);
+            oVm.setProperty("/crId", this._sCrId);
+            var oTabs = this.byId("approvalTabs");
+            if (oTabs) { oTabs.destroyItems(); }
+            var oProgressBox = this.byId("releaseProgressBox");
+            if (oProgressBox) { oProgressBox.destroyItems(); }
+
+            function fetchJson(sUrl) {
+                return fetch(sUrl, { headers: { Accept: "application/json" } })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) { return (d && d.value !== undefined) ? d.value : d; })
+                    .catch(function () { return []; });
+            }
+
+            ApprovalHelper.getCurrentUserId(oModel).then(function (sUserId) {
+                that._sUserId = sUserId;
+
+                var pHeader = fetchJson(sBase + "/ChangeRequests(" + sCrKey + ")");
+
+                var pSteps = fetchJson(
+                    sBase + "/CRReleaseSteps?$filter=cr_cr_cr_id eq " + sCrKey +
+                    "&$select=cr_cr_cr_id,step_number,sequence_within_step," +
+                    "release_code_release_code_id,assigned_to,status,due_at,acted_by,acted_at,comment" +
+                    "&$orderby=step_number,sequence_within_step&$top=200"
+                );
+
+                var pReleaseCodes = fetchJson(
+                    sBase + "/ReleaseCodes?$select=release_code_id,description,sla_hours&$top=200"
+                );
+
+                var pRoles = fetchJson(
+                    sBase + "/CRBPRoles?$filter=cr_cr_id eq " + sCrKey +
+                    "&$select=cr_cr_id,role_role_id,instance_no,auto_pulled&$top=100"
+                );
+
+                var pFvs = fetchJson(
+                    sBase + "/CRFieldValues?$filter=cr_cr_id eq " + sCrKey +
+                    "&$select=cr_cr_id,role_id,instance_no,field_field_id,column_name,counter,old_value,new_value,source_level&$top=5000"
+                );
+
+                var pAtts = fetchJson(
+                    sBase + "/CRAttachments?$filter=cr_cr_id eq " + sCrKey +
+                    "&$select=attachment_id,file_name,size_bytes,mime_type,description,uploaded_by,uploaded_at&$top=200"
+                );
+
+                var pDecisions = fetchJson(
+                    sBase + "/CRApprovalDecisions?$filter=cr_cr_id eq " + sCrKey +
+                    "&$orderby=acted_at&$top=500"
+                );
+
+                var pRoleMeta  = fetchJson(sBase + "/BPRoles?$select=role_id,description&$top=500");
+                var pFieldMeta = fetchJson(sBase + "/FieldMasters?$select=field_id,description,main_group_group_id,sub_group_group_id,grid&$top=2000");
+                var pGroupMeta = fetchJson(sBase + "/FieldGroups?$select=group_id,description,parent_group_id_group_id,sequence,icon&$top=500");
+                var pGridCols  = fetchJson(sBase + "/GridColumns?$select=field_field_id,column_name,description,data_type,display_type&$top=5000");
+
+                var pMyCodes = fetchJson(
+                    sBase + "/ReleaseCodeUsers?$filter=user_id eq '" + encodeURIComponent(sUserId) +
+                    "' and active eq true&$select=release_code_release_code_id&$top=200"
+                );
+
+                return Promise.all([
+                    pHeader, pSteps, pReleaseCodes, pRoles, pFvs, pAtts,
+                    pDecisions, pRoleMeta, pFieldMeta, pGroupMeta, pMyCodes, pGridCols
+                ]);
+            }).then(function (aRes) {
+                var oCr          = aRes[0];
+                var aSteps       = aRes[1] || [];
+                var aReleaseCodes = aRes[2] || [];
+                var aRolesRaw    = aRes[3] || [];
+                var aFvsRaw      = aRes[4] || [];
+                var aAttsRaw     = aRes[5] || [];
+                var aDecisionsRaw = aRes[6] || [];
+                var aRoleMetaRaw = aRes[7] || [];
+                var aFieldMetaRaw = aRes[8] || [];
+                var aGroupMetaRaw = aRes[9] || [];
+                var aMyCodesRaw  = aRes[10] || [];
+                var aGridColsRaw = aRes[11] || [];
+
+                that._oCr = oCr || {};
+                that._aAllSteps = aSteps;
+
+                that._mReleaseCodeMeta = {};
+                aReleaseCodes.forEach(function (c) {
+                    that._mReleaseCodeMeta[c.release_code_id] = {
+                        description: c.description || "",
+                        sla_hours  : c.sla_hours
+                    };
+                });
+
+                var aRoleIds = [];
+                aRolesRaw.forEach(function (r) {
+                    var sId = r.role_role_id || r.role_id;
+                    if (sId && aRoleIds.indexOf(sId) < 0) { aRoleIds.push(sId); }
+                });
+                that._aCrRoleIds = aRoleIds;
+
+                // Grid-type fields (see FieldMaster.grid) save one CRFieldValue
+                // row PER CELL — column_name + counter identify which column
+                // and which row. Split those out into a grouped-by-row map
+                // instead of a flat list, same reasoning/fix as
+                // MyRequestDetail.controller.js's equivalent.
+                that._aCrFieldValues = [];
+                that._mGridRows = {};   // "roleId|fieldId" -> { counter: {column_name: value} }
+                aFvsRaw.forEach(function (fv) {
+                    var sRoleId  = fv.role_id || "";
+                    var sFieldId = fv.field_field_id || fv.field_id || "";
+                    if (fv.column_name) {
+                        var sKey = sRoleId + "|" + sFieldId;
+                        if (!that._mGridRows[sKey]) { that._mGridRows[sKey] = {}; }
+                        var iCounter = fv.counter || 1;
+                        if (!that._mGridRows[sKey][iCounter]) { that._mGridRows[sKey][iCounter] = {}; }
+                        that._mGridRows[sKey][iCounter][fv.column_name] = fv.new_value || "";
+                        return;
+                    }
+                    that._aCrFieldValues.push({
+                        role_id  : sRoleId,
+                        field_id : sFieldId,
+                        old_value: fv.old_value || "",
+                        new_value: fv.new_value || "",
+                        source_level: fv.source_level || ""
+                    });
+                });
+
+                that._aAttachments = aAttsRaw.map(function (a) {
+                    return {
+                        file_name  : a.file_name  || "",
+                        size_bytes : a.size_bytes || 0,
+                        mime_type  : a.mime_type  || "",
+                        uploaded_by: a.uploaded_by || "",
+                        uploaded_at: a.uploaded_at
+                            ? new Date(a.uploaded_at).toLocaleString() : ""
+                    };
+                });
+
+                that._aDecisions = aDecisionsRaw.map(function (d) {
+                    return {
+                        action    : d.action || "",
+                        acted_by  : d.acted_by || "",
+                        acted_at  : d.acted_at || null,
+                        comment   : d.comment || "",
+                        release_code_id: d.release_code_release_code_id || ""
+                    };
+                });
+
+                that._mRoleMeta = {};
+                aRoleMetaRaw.forEach(function (r) { that._mRoleMeta[r.role_id] = r.description || ""; });
+
+                that._mFieldMeta = {};
+                aFieldMetaRaw.forEach(function (f) {
+                    that._mFieldMeta[f.field_id] = {
+                        description: f.description || "",
+                        // Raw values — mainGroup gets resolved via tree-walk
+                        // below once _mGroupMeta is populated (a field's own
+                        // main_group_group_id doesn't follow its sub-group if
+                        // that sub-group is later re-parented — see the
+                        // matching note in MyRequestDetail.controller.js).
+                        mainGroup  : f.main_group_group_id || "",
+                        subGroup   : f.sub_group_group_id  || "",
+                        grid       : f.grid === true
+                    };
+                });
+
+                that._mGridColumns = {};
+                aGridColsRaw.forEach(function (gc) {
+                    var sFid = gc.field_field_id;
+                    if (!that._mGridColumns[sFid]) { that._mGridColumns[sFid] = []; }
+                    that._mGridColumns[sFid].push({
+                        column_name : gc.column_name,
+                        description : gc.description || gc.column_name,
+                        data_type   : gc.data_type,
+                        display_type: gc.display_type
+                    });
+                });
+
+                that._mGroupMeta = {};
+                aGroupMetaRaw.forEach(function (g) {
+                    that._mGroupMeta[g.group_id] = {
+                        description: g.description || g.group_id,
+                        parentId   : g.parent_group_id_group_id || null,
+                        sequence   : g.sequence || 99,
+                        icon       : g.icon || "sap-icon://form"
+                    };
+                });
+
+                // Now that _mGroupMeta is loaded, resolve each field's real
+                // main group by walking up from its sub_group to the current
+                // root, rather than trusting the field's own possibly-stale
+                // main_group_group_id (see the note where _mFieldMeta is
+                // built above).
+                var fnFindRoot = function (sGroupId) {
+                    var sCurrent = sGroupId;
+                    var oSeen = {};
+                    while (that._mGroupMeta[sCurrent] && that._mGroupMeta[sCurrent].parentId && !oSeen[sCurrent]) {
+                        oSeen[sCurrent] = true;
+                        sCurrent = that._mGroupMeta[sCurrent].parentId;
+                    }
+                    return sCurrent;
+                };
+                Object.keys(that._mFieldMeta).forEach(function (sFieldId) {
+                    var oMeta = that._mFieldMeta[sFieldId];
+                    oMeta.mainGroup = oMeta.subGroup
+                        ? fnFindRoot(oMeta.subGroup)
+                        : (oMeta.mainGroup || "GD");
+                });
+
+                // Grid fields have no entries in _aCrFieldValues (every one of
+                // their CRFieldValue rows carried a column_name and went into
+                // _mGridRows instead) — without a representative entry here,
+                // the role/group grouping below would just skip them
+                // entirely. One synthetic entry per (role, grid field) is
+                // enough; _buildDiffRow branches on oFm.grid before it ever
+                // reads old_value/new_value off it.
+                Object.keys(that._mGridRows).forEach(function (sKey) {
+                    var aParts = sKey.split("|");
+                    that._aCrFieldValues.push({
+                        role_id  : aParts[0],
+                        field_id : aParts[1],
+                        old_value: "",
+                        new_value: "",
+                        source_level: ""
+                    });
+                });
+
+                var aMyCodes = aMyCodesRaw.map(function (c) { return c.release_code_release_code_id; });
+                that._aMyCodes = aMyCodes;
+
+                // ── Determine current stage + "my" step ─────────────────
+                var aCurrentStage = ApprovalHelper.currentStageSteps(aSteps);
+                that._iCurrentStageNumber = aCurrentStage.length ? aCurrentStage[0].step_number : null;
+
+                var aStepsAtRoute = aSteps.filter(function (s) { return s.step_number === that._iStepNumber; });
+                var oIdentityStep = aStepsAtRoute.filter(function (s) {
+                    return (s.assigned_to && s.assigned_to === that._sUserId) ||
+                        aMyCodes.indexOf(s.release_code_release_code_id) >= 0;
+                })[0];
+
+                that._myStep = oIdentityStep || aStepsAtRoute[0] || null;
+                that._sMyReleaseCode = that._myStep ? that._myStep.release_code_release_code_id : null;
+
+                var bIsCurrentStage  = that._iCurrentStageNumber !== null && that._iCurrentStageNumber === that._iStepNumber;
+                var bIdentityMatch   = !!oIdentityStep;
+                var bPending         = !!(that._myStep && that._myStep.status === "PENDING");
+                var bHeaderInApproval = that._oCr.status === "IN_APPROVAL";
+
+                var bActionable = bIdentityMatch && bPending && bIsCurrentStage && bHeaderInApproval;
+                oVm.setProperty("/actionable", bActionable);
+
+                var sBanner = "";
+                if (!that._myStep) {
+                    sBanner = "This step could not be found on the current release strategy snapshot.";
+                } else if (!bHeaderInApproval) {
+                    sBanner = "This request is " + (that._oCr.status || "").replace(/_/g, " ") + " \u2014 no further action is needed.";
+                } else if (!bIsCurrentStage) {
+                    sBanner = "This step isn't the active stage right now \u2014 it may already have been actioned, or an earlier stage is still pending.";
+                } else if (!bIdentityMatch) {
+                    sBanner = "You aren't an assigned approver for this step \u2014 showing read-only.";
+                } else if (!bPending) {
+                    sBanner = "This step has already been " + (that._myStep.status || "").toLowerCase().replace(/_/g, " ") + ".";
+                }
+                oVm.setProperty("/infoBannerText", sBanner);
+                oVm.setProperty("/infoBannerVisible", !!sBanner);
+
+                oVm.setProperty("/status", that._oCr.status || "");
+                var sSubtitle = "Submitted by " + (that._oCr.requester || "\u2014") +
+                    (that._oCr.submitted_at ? " on " + new Date(that._oCr.submitted_at).toLocaleDateString() : "") +
+                    (that._oCr.strategy_strategy_id ? " \u00b7 Strategy " + that._oCr.strategy_strategy_id : "");
+                oVm.setProperty("/subtitle", sSubtitle);
+
+                // Scope rows need the codes actually used on this CR
+                var aCodesUsed = [];
+                aSteps.forEach(function (s) {
+                    if (s.release_code_release_code_id && aCodesUsed.indexOf(s.release_code_release_code_id) < 0) {
+                        aCodesUsed.push(s.release_code_release_code_id);
+                    }
+                });
+
+                return that._loadScopes(sBase, fetchJson, aCodesUsed);
+            }).then(function () {
+                that._renderAll();
+                oVm.setProperty("/busy", false);
+            }).catch(function (oErr) {
+                oVm.setProperty("/busy", false);
+                MessageBox.error("Could not load approval: " + ((oErr && oErr.message) || String(oErr)));
+            });
+        },
+
+        _loadScopes: function (sBase, fetchJson, aCodesUsed) {
+            var that = this;
+            if (!aCodesUsed.length) {
+                this._aAllScopeRows = [];
+                this._aMyScopeRows = [];
+                this._bMyCodeUnrestricted = true;
+                return Promise.resolve();
+            }
+            var sFilter = aCodesUsed.map(function (c) {
+                return "release_code_release_code_id eq '" + encodeURIComponent(c) + "'";
+            }).join(" or ");
+
+            return fetchJson(
+                sBase + "/ReleaseCodeScopes?$filter=" + encodeURIComponent(sFilter) +
+                "&$select=release_code_release_code_id,scope_type,scope_id&$top=500"
+            ).then(function (aScopes) {
+                that._aAllScopeRows = aScopes || [];
+                that._aMyScopeRows = that._sMyReleaseCode
+                    ? that._aAllScopeRows.filter(function (s) {
+                        return s.release_code_release_code_id === that._sMyReleaseCode;
+                    })
+                    : [];
+                // A code with zero scope rows has no section-level restriction
+                // configured — treat it as seeing/owning everything (mirrors
+                // how Code 01 / Master Data Steward behaves in the wireframe).
+                that._bMyCodeUnrestricted = that._aMyScopeRows.length === 0;
+            });
+        },
+
+        // ── Render ────────────────────────────────────────────────────
+
+        _renderAll: function () {
+            this._buildReleaseProgress();
+            this._buildTabs();
+        },
+
+        _fmtDate: function (v) {
+            return v ? new Date(v).toLocaleString() : "";
+        },
+
+        // ── Release Progress strip ───────────────────────────────────
+
+        _buildReleaseProgress: function () {
+            var oBox = this.byId("releaseProgressBox");
+            if (!oBox) { return; }
+            oBox.destroyItems();
+
+            if (!this._aAllSteps.length) {
+                oBox.addItem(new Text({ text: "No release steps found for this request.", class: "sapUiSmallMargin" }));
+                return;
+            }
+
+            var that = this;
+            var aStepNumbers = [];
+            this._aAllSteps.forEach(function (s) {
+                if (aStepNumbers.indexOf(s.step_number) < 0) { aStepNumbers.push(s.step_number); }
+            });
+            aStepNumbers.sort(function (a, b) { return a - b; });
+
+            // Flatten into one ordered list first so we can tell which card
+            // is truly the last one (across all step_numbers) and only skip
+            // the connector arrow after that one.
+            var aOrdered = [];
+            aStepNumbers.forEach(function (n) {
+                that._aAllSteps
+                    .filter(function (s) { return s.step_number === n; })
+                    .forEach(function (s) { aOrdered.push(s); });
+            });
+
+            aOrdered.forEach(function (step, idx) {
+                oBox.addItem(that._buildProgressCard(step, step.step_number === that._iCurrentStageNumber));
+                if (idx < aOrdered.length - 1) {
+                    oBox.addItem(new Icon({
+                        src: "sap-icon://arrow-right",
+                        class: "sapUiTinyMarginBeginEnd sapUiTinyMarginTop",
+                        color: "Default"
+                    }));
+                }
+            });
+        },
+
+        _buildProgressCard: function (step, bIsCurrentStage) {
+            var oCodeMeta = this._mReleaseCodeMeta[step.release_code_release_code_id] || {};
+            var sCodeLabel = step.release_code_release_code_id +
+                (oCodeMeta.description ? " \u2014 " + oCodeMeta.description : "");
+
+            var sState, sMeta, sIcon;
+            if (step.status === "APPROVED") {
+                sState = "Success"; sIcon = "sap-icon://accept";
+                sMeta = "Released by " + (step.acted_by || "\u2014") + " \u00b7 " + this._fmtDate(step.acted_at);
+            } else if (step.status === "REJECTED") {
+                sState = "Error"; sIcon = "sap-icon://decline";
+                sMeta = "Rejected by " + (step.acted_by || "\u2014") + " \u00b7 " + this._fmtDate(step.acted_at);
+            } else if (step.status === "SENT_BACK") {
+                sState = "Warning"; sIcon = "sap-icon://redo";
+                sMeta = "Sent back by " + (step.acted_by || "\u2014") + " \u00b7 " + this._fmtDate(step.acted_at);
+            } else if (bIsCurrentStage) {
+                var bIsMine = this._myStep && this._myStep.step_number === step.step_number &&
+                    this._myStep.release_code_release_code_id === step.release_code_release_code_id;
+                sState = "Warning"; sIcon = "sap-icon://pending";
+                sMeta = bIsMine
+                    ? "Assigned to you" + (step.due_at ? " \u00b7 Due " + this._fmtDate(step.due_at) : "")
+                    : "Pending" + (step.assigned_to ? " (" + step.assigned_to + ")" : "");
+            } else {
+                sState = "None"; sIcon = "sap-icon://future";
+                sMeta = "Pending";
+            }
+
+            return new VBox({
+                width: "12rem",
+                class: "sapUiSmallMarginEnd sapUiTinyMarginTop",
+                items: [
+                    new ObjectStatus({ icon: sIcon, state: sState, class: "sapUiTinyMarginBottom" }),
+                    new Text({ text: sCodeLabel, class: "mdmScopeTitle" }),
+                    new Text({ text: sMeta })
+                ]
+            });
+        },
+
+        // ── Tabs ──────────────────────────────────────────────────────
+
+        _groupByMainTab: function (aFvs) {
+            var that = this;
+            var mMain = {};
+            var aOrder = [];
+
+            aFvs.forEach(function (fv) {
+                var oFm = that._mFieldMeta[fv.field_id] || {};
+                var sMainRef = oFm.mainGroup || "GD";
+                var oMainMeta = that._mGroupMeta[sMainRef] || {};
+                var sTrueTab = oMainMeta.parentId ? oMainMeta.parentId : sMainRef;
+                var sSubPanel = sMainRef;
+
+                if (!mMain[sTrueTab]) { mMain[sTrueTab] = {}; aOrder.push(sTrueTab); }
+                if (!mMain[sTrueTab][sSubPanel]) { mMain[sTrueTab][sSubPanel] = []; }
+                mMain[sTrueTab][sSubPanel].push(fv);
+            });
+
+            aOrder.sort(function (a, b) {
+                var seqA = (that._mGroupMeta[a] && that._mGroupMeta[a].sequence) || 99;
+                var seqB = (that._mGroupMeta[b] && that._mGroupMeta[b].sequence) || 99;
+                return seqA - seqB;
+            });
+
+            return { mainOrder: aOrder, groups: mMain };
+        },
+
+        // Read-only field row: Label + disabled Input showing the value \u2014
+        // same shape as MyRequestDetail.controller.js's _buildFieldRow, so a
+        // field looks identical whether the requester is viewing what they
+        // filled in or an approver is reviewing it. (CRFieldValue doesn't
+        // carry a per-request field_status here, so unlike MyRequestDetail
+        // this doesn't show a required-field asterisk.)
+        _buildDiffRow: function (fv) {
+            var oFm = this._mFieldMeta[fv.field_id] || {};
+
+            if (oFm.grid) {
+                return this._buildGridDiffRow(fv, oFm);
+            }
+
+            var sLabel = (oFm.description || fv.field_id) + ":";
+
+            return new HBox({
+                alignItems: "Center",
+                class: "sapUiTinyMarginBottom",
+                items: [
+                    new Label({ text: sLabel, tooltip: fv.field_id, width: "14rem", class: "sapUiTinyMarginEnd" }),
+                    new Input({
+                        value      : fv.new_value || "",
+                        editable   : false,
+                        width      : "22rem",
+                        placeholder: fv.new_value ? "" : "(not filled)"
+                    })
+                ]
+            });
+        },
+
+        // Read-only table for a grid field, reconstructed from the rows
+        // grouped by counter in _mGridRows (see the note above where that's
+        // built) — mirrors MyRequestDetail.controller.js's _buildGridFieldRow.
+        // No old/new diff shown per cell (CRFieldValue doesn't track a
+        // meaningful old_value per grid cell today); this just shows what
+        // was submitted.
+        _buildGridDiffRow: function (fv, oFm) {
+            var aCols = this._mGridColumns[fv.field_id] || [];
+            var oRowsByCounter = this._mGridRows[fv.role_id + "|" + fv.field_id] || {};
+            var aRows = Object.keys(oRowsByCounter)
+                .map(Number)
+                .sort(function (a, b) { return a - b; })
+                .map(function (c) { return oRowsByCounter[c]; });
+
+            var oTable = new Table({
+                noDataText: "(no rows saved)",
+                growing   : false,
+                fixedLayout: false,
+                columns: aCols.map(function (gc) {
+                    return new Column({ header: new Label({ text: gc.description, design: "Bold" }) });
+                }),
+                items: aRows.map(function (oRow) {
+                    return new ColumnListItem({
+                        cells: aCols.map(function (gc) {
+                            return new Text({ text: oRow[gc.column_name] || "\u2014" });
+                        })
+                    });
+                })
+            });
+
+            return new VBox({
+                class: "sapUiTinyMarginBottom",
+                items: [
+                    new Label({ text: (oFm.description || fv.field_id) + ":", design: "Bold" }),
+                    oTable
+                ]
+            });
+        },
+
+        _buildTabsForBucket: function (sRoleId, aFvsForBucket, oTabs) {
+            if (!aFvsForBucket.length) { return; }
+            var that = this;
+            var oGrouping = this._groupByMainTab(aFvsForBucket);
+
+            oGrouping.mainOrder.forEach(function (sMainId) {
+                var oMainMeta = that._mGroupMeta[sMainId] || {};
+                var sMainLabel = oMainMeta.description || sMainId.replace(/_/g, " ");
+                // No more "ROLE \u2014 Group" prefix here: which role these fields
+                // belong to is now conveyed by the ACTIVE ROLE switcher above
+                // the tab bar (see _buildRoleBar), the same way MyRequestDetail
+                // shows one role's Field-Group tabs at a time instead of every
+                // role's tabs flattened into one long, repeatedly-labeled strip.
+                var sTabLabel = sMainLabel;
+                var sTabKey = (sRoleId || "__general") + "::" + sMainId;
+
+                var mSubs = oGrouping.groups[sMainId];
+                var iTotal = 0;
+                Object.keys(mSubs).forEach(function (k) { iTotal += mSubs[k].length; });
+
+                var oTabVBox = new VBox({ class: "sapUiSmallMarginTop" });
+
+                var aSubKeys = Object.keys(mSubs).sort(function (a, b) {
+                    var seqA = (that._mGroupMeta[a] && that._mGroupMeta[a].sequence) || 99;
+                    var seqB = (that._mGroupMeta[b] && that._mGroupMeta[b].sequence) || 99;
+                    return seqA - seqB;
+                });
+
+                aSubKeys.forEach(function (sSubKey) {
+                    var aFvsInSub = mSubs[sSubKey];
+                    var bDirect = (sSubKey === sMainId);
+
+                    if (bDirect) {
+                        var oDirectVBox = new VBox({ class: "sapUiSmallMarginBeginEnd sapUiSmallMarginTopBottom" });
+                        aFvsInSub.forEach(function (fv) { oDirectVBox.addItem(that._buildDiffRow(fv)); });
+                        oTabVBox.addItem(oDirectVBox);
+                    } else {
+                        var oSubMeta = that._mGroupMeta[sSubKey] || {};
+                        var oPanel = new Panel({
+                            headerText: (oSubMeta.description || sSubKey.replace(/_/g, " ")) + " (" + aFvsInSub.length + ")",
+                            expandable: true,
+                            expanded: true,
+                            class: "sapUiSmallMarginBottom"
+                        });
+                        var oPanelVBox = new VBox({ class: "sapUiSmallMarginBeginEnd sapUiSmallMarginTopBottom" });
+                        aFvsInSub.forEach(function (fv) { oPanelVBox.addItem(that._buildDiffRow(fv)); });
+                        oPanel.addContent(oPanelVBox);
+                        oTabVBox.addItem(oPanel);
+                    }
+                });
+
+                oTabs.addItem(new IconTabFilter({
+                    key: sTabKey,
+                    text: sTabLabel,
+                    icon: oMainMeta.icon || "sap-icon://form",
+                    count: String(iTotal),
+                    content: [oTabVBox]
+                }));
+            });
+        },
+
+        _buildAttachmentsTab: function () {
+            var aAtts = this._aAttachments || [];
+            var oVBox = new VBox({ class: "sapUiSmallMargin" });
+            oVBox.addItem(new Text({ text: "Supporting documents attached to this change request.", class: "sapUiSmallMarginBottom" }));
+
+            if (!aAtts.length) {
+                oVBox.addItem(new Text({ text: "No attachments." }));
+            } else {
+                var oTable = new Table({
+                    alternateRowColors: true,
+                    columns: [
+                        new Column({ header: new Label({ text: "File Name", design: "Bold" }) }),
+                        new Column({ header: new Label({ text: "Size", design: "Bold" }), hAlign: "End", width: "7rem" }),
+                        new Column({ header: new Label({ text: "Type", design: "Bold" }), width: "8rem" }),
+                        new Column({ header: new Label({ text: "Uploaded By", design: "Bold" }), width: "9rem" }),
+                        new Column({ header: new Label({ text: "Uploaded On", design: "Bold" }), width: "12rem" })
+                    ]
+                });
+                aAtts.forEach(function (a) {
+                    var sSize;
+                    if (a.size_bytes < 1024) { sSize = a.size_bytes + " B"; }
+                    else if (a.size_bytes < 1024 * 1024) { sSize = Math.round(a.size_bytes / 1024) + " KB"; }
+                    else { sSize = (a.size_bytes / (1024 * 1024)).toFixed(1) + " MB"; }
+
+                    oTable.addItem(new ColumnListItem({
+                        cells: [
+                            new ObjectIdentifier({ title: a.file_name }),
+                            new Text({ text: sSize }),
+                            new Text({ text: a.mime_type }),
+                            new Text({ text: a.uploaded_by }),
+                            new Text({ text: a.uploaded_at })
+                        ]
+                    }));
+                });
+                oVBox.addItem(oTable);
+            }
+
+            return new IconTabFilter({
+                key: "__attachments", text: "Attachments", icon: "sap-icon://attachment",
+                count: aAtts.length ? String(aAtts.length) : "", content: [oVBox]
+            });
+        },
+
+        _buildHistoryTab: function () {
+            var that = this;
+            var mActionWord = {
+                APPROVE: "Released", REJECT: "Rejected", SEND_BACK: "Sent back",
+                REASSIGN: "Reassigned", ESCALATE: "Escalated"
+            };
+
+            var aEvents = this._aDecisions.map(function (d) {
+                return {
+                    ts: d.acted_at,
+                    title: (mActionWord[d.action] || d.action) + (d.release_code_id ? " \u2014 Code " + d.release_code_id : ""),
+                    meta: (d.acted_by || "\u2014") + " \u00b7 " + that._fmtDate(d.acted_at) +
+                        (d.comment ? " \u00b7 \u201c" + d.comment + "\u201d" : "")
+                };
+            });
+
+            if (this._oCr.submitted_at) {
+                aEvents.push({
+                    ts: this._oCr.submitted_at,
+                    title: "Submitted for approval",
+                    meta: (this._oCr.requester || "\u2014") + " \u00b7 " + this._fmtDate(this._oCr.submitted_at)
+                });
+            }
+            if (this._oCr.createdAt) {
+                aEvents.push({
+                    ts: this._oCr.createdAt,
+                    title: "Request created",
+                    meta: (this._oCr.requester || "\u2014") + " \u00b7 " + this._fmtDate(this._oCr.createdAt)
+                });
+            }
+
+            aEvents.sort(function (a, b) { return new Date(b.ts) - new Date(a.ts); });
+
+            var oVBox = new VBox({ class: "sapUiSmallMargin" });
+            if (!aEvents.length) {
+                oVBox.addItem(new Text({ text: "No history recorded yet." }));
+            } else {
+                aEvents.forEach(function (ev) {
+                    oVBox.addItem(new HBox({
+                        class: "sapUiTinyMarginBottom",
+                        items: [
+                            new Icon({ src: "sap-icon://record", size: "0.7rem", class: "sapUiTinyMarginTop sapUiTinyMarginEnd" }),
+                            new VBox({ items: [
+                                new Text({ text: ev.title, class: "mdmScopeTitle" }),
+                                new Text({ text: ev.meta })
+                            ] })
+                        ]
+                    }));
+                });
+            }
+
+            return new IconTabFilter({
+                key: "__history", text: "History", icon: "sap-icon://history",
+                content: [oVBox]
+            });
+        },
+
+        // Builds the "ACTIVE ROLE" SegmentedButton — same pattern as
+        // MyRequestDetail's detailRoleBar — so an approver switches
+        // between roles exactly the way the requester did on Create BP /
+        // My Requests, instead of every role's Field-Group tabs being
+        // flattened into one long, repeatedly-prefixed IconTabBar strip.
+        _buildRoleBar: function () {
+            var oBar = this.byId("approvalRoleBar");
+            var aRoleIds = this._aCrRoleIds || [];
+            this._oViewModel.setProperty("/roleCount", aRoleIds.length);
+            if (!oBar) { return; }
+
+            oBar.destroyItems();
+            var that = this;
+            aRoleIds.forEach(function (sRoleId) {
+                var sDesc = that._mRoleMeta[sRoleId] || "";
+                oBar.addItem(new SegmentedButtonItem({
+                    key : sRoleId,
+                    text: sRoleId + (sDesc ? " — " + sDesc : "")
+                }));
+            });
+
+            this._sActiveRoleId = aRoleIds[0] || null;
+            if (aRoleIds.length > 1 && this._sActiveRoleId) {
+                oBar.setSelectedKey(this._sActiveRoleId);
+            }
+        },
+
+        // Appends the currently active role's Field-Group tabs to oTabs —
+        // shared by the initial render and onApprovalRoleChange below.
+        _appendActiveRoleTabs: function (oTabs) {
+            if (!this._sActiveRoleId) { return; }
+            var sRoleId = this._sActiveRoleId;
+            var aRoleFvs = this._aCrFieldValues.filter(function (fv) { return fv.role_id === sRoleId; });
+            this._buildTabsForBucket(sRoleId, aRoleFvs, oTabs);
+        },
+
+        _buildTabs: function () {
+            var oTabs = this.byId("approvalTabs");
+            if (!oTabs) { return; }
+            oTabs.destroyItems();
+
+            this._buildRoleBar();
+
+            // General (non-role) fields — CATEGORY/ACCOUNT_GROUP-level values
+            // aren't tied to any one role, so these stay visible regardless
+            // of which role is selected in the switcher above.
+            var aGeneral = this._aCrFieldValues.filter(function (fv) { return !fv.role_id; });
+            this._buildTabsForBucket(null, aGeneral, oTabs);
+
+            this._appendActiveRoleTabs(oTabs);
+
+            oTabs.addItem(this._buildAttachmentsTab());
+            oTabs.addItem(this._buildHistoryTab());
+
+            var aItems = oTabs.getItems();
+            if (aItems.length) { oTabs.setSelectedKey(aItems[0].getKey()); }
+        },
+
+        // Mirrors MyRequestDetail's onDetailRoleChange: destroyItems() also
+        // destroys previously-held tab content, so General/Attachments/
+        // History are always rebuilt fresh here rather than re-added.
+        onApprovalRoleChange: function (oEvent) {
+            this._sActiveRoleId = oEvent.getParameter("key");
+
+            var oTabs = this.byId("approvalTabs");
+            if (!oTabs) { return; }
+            oTabs.destroyItems();
+
+            var aGeneral = this._aCrFieldValues.filter(function (fv) { return !fv.role_id; });
+            this._buildTabsForBucket(null, aGeneral, oTabs);
+
+            this._appendActiveRoleTabs(oTabs);
+
+            oTabs.addItem(this._buildAttachmentsTab());
+            oTabs.addItem(this._buildHistoryTab());
+
+            var aItems = oTabs.getItems();
+            if (aItems.length) { oTabs.setSelectedKey(aItems[0].getKey()); }
+        },
+
+        // ── Actions ───────────────────────────────────────────────────
+
+        onApprove:  function () { this._openDecisionDialog("APPROVE"); },
+        onReject:   function () { this._openDecisionDialog("REJECT"); },
+        onSendBack: function () { this._openDecisionDialog("SEND_BACK"); },
+
+        _openDecisionDialog: function (sAction) {
+            var that = this;
+            var mLabel = { APPROVE: "Approve", REJECT: "Reject", SEND_BACK: "Send Back" };
+            var sTitle = mLabel[sAction] || sAction;
+            var bCommentRequired = sAction !== "APPROVE";
+
+            var oTextArea = new TextArea({
+                rows: 3,
+                width: "100%",
+                placeholder: bCommentRequired ? "Comment (required)" : "Comment (optional)"
+            });
+
+            var oDialog = new Dialog({
+                title: sTitle + " " + this._sCrId,
+                contentWidth: "28rem",
+                content: [
+                    new Text({
+                        text: bCommentRequired ? "Please explain why:" : "Add an optional comment:",
+                        class: "sapUiSmallMarginBottom"
+                    }),
+                    oTextArea
+                ],
+                beginButton: new Button({
+                    text: sTitle,
+                    type: sAction === "APPROVE" ? "Accept" : "Reject",
+                    press: function () {
+                        var sComment = oTextArea.getValue().trim();
+                        if (bCommentRequired && !sComment) {
+                            oTextArea.setValueState("Error");
+                            oTextArea.setValueStateText("A comment is required to " + sTitle.toLowerCase() + ".");
+                            return;
+                        }
+                        oDialog.close();
+                        that._submitDecision(sAction, sComment);
+                    }
+                }),
+                endButton: new Button({
+                    text: "Cancel",
+                    press: function () { oDialog.close(); }
+                }),
+                afterClose: function () { oDialog.destroy(); }
+            });
+
+            this.getView().addDependent(oDialog);
+            oDialog.open();
+        },
+
+        _submitDecision: function (sAction, sComment) {
+            var oVm    = this._oViewModel;
+            var oModel = this.getOwnerComponent().getModel();
+            var sUrl   = oModel.getServiceUrl().replace(/\/$/, "") + "/approveReleaseStep";
+            var that   = this;
+
+            oVm.setProperty("/busy", true);
+
+            fetch(sUrl, {
+                method : "POST",
+                headers: { "Content-Type": "application/json", "Accept": "application/json" },
+                body   : JSON.stringify({
+                    cr_id: this._sCrId,
+                    step_number: this._iStepNumber,
+                    comment: sComment,
+                    action: sAction
+                })
+            })
+            .then(function (r) {
+                if (!r.ok) {
+                    return r.json().then(function (e) {
+                        throw new Error((e.error && e.error.message) || "HTTP " + r.status);
+                    });
+                }
+                return r.json();
+            })
+            .then(function (oData) {
+                var oResult = (oData && oData.value) ? oData.value : oData;
+                MessageToast.show((oResult && oResult.message) || (that._sCrId + " " + sAction.toLowerCase() + "ed."));
+                that.getOwnerComponent().getRouter().navTo("myApprovals");
+            })
+            .catch(function (oErr) {
+                oVm.setProperty("/busy", false);
+                MessageBox.error("Could not record decision: " + oErr.message);
+            });
+        },
+
+        // ── Navigation ───────────────────────────────────────────────
+
+        onNavBack: function () {
+            this.getOwnerComponent().getRouter().navTo("myApprovals");
+        }
+    });
+});

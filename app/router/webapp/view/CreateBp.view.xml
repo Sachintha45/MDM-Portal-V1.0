@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mvc:View
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:core="sap.ui.core"
+    xmlns:l="sap.ui.layout"
+    controllerName="mdm.portal.controller.CreateBp"
+    displayBlock="true">
+
+    <Page id="createBpPage" busy="{rt>/busy}" busyIndicatorDelay="0"
+          showNavButton="true" navButtonPress=".onCancel">
+
+        <customHeader>
+            <Bar>
+                <contentLeft>
+                    <Button icon="sap-icon://nav-back" type="Transparent" press=".onCancel"/>
+                    <Title id="pageTitle" text="Create Business Partner" level="H4"/>
+                </contentLeft>
+            </Bar>
+        </customHeader>
+
+        <content>
+            <!-- ── Subtitle + object key strip ────────────────────────── -->
+            <VBox class="sapUiMediumMarginBeginEnd sapUiSmallMarginTop">
+                <Text text="{rt>/subtitle}" class="mdmSubtitleText"/>
+                <!-- <HBox wrap="Wrap" class="sapUiSmallMarginTop" alignItems="Center">
+                    <ObjectAttribute title="BP Category"      text="{rt>/catDisp}"  class="sapUiMediumMarginEnd"/>
+                    <ObjectAttribute title="BP Roles"         text="{rt>/roleDisp}" class="sapUiMediumMarginEnd"/>
+                    <ObjectAttribute title="BP Account Group" text="{rt>/bpAgDisp}" class="sapUiMediumMarginEnd"/>
+                    <ObjectAttribute title="Number Range"     text="{rt>/nrDisp}"   class="sapUiMediumMarginEnd"/>
+                    <ObjectAttribute title="Prerequisites"    text="{rt>/preqDisp}" class="sapUiMediumMarginEnd"/>
+                    <ObjectStatus    title="Status" text="{rt>/status}" state="Information"/>
+                </HBox> -->
+            </VBox>
+
+            <HBox class="sapUiTinyMarginTop sapUiMediumMarginBeginEnd">
+                <core:HTML content="&lt;hr style='border:none;border-top:1px solid var(--sapGroup_TitleBorderColor);margin:0 0 0.5rem 0;width:100%'/&gt;"/>
+            </HBox>
+
+            <!-- ── STEP 0: Create (pick category) OR Extend (pick BP) ─── -->
+            <VBox class="sapUiMediumMarginBeginEnd sapUiSmallMarginTop">
+                <HBox alignItems="End">
+                    <VBox width="42%">
+                        <Label text="BP Category" required="true" labelFor="selCategory"/>
+                        <Select id="selCategory" width="100%" forceSelection="false"
+                                selectedKey="{rt>/categoryId}" change=".onCategoryChange"
+                                items="{path: 'cat>/items'}">
+                            <core:Item key="{cat>key}" text="{cat>text}"/>
+                        </Select>
+                    </VBox>
+
+                    <VBox width="16%" alignItems="Center">
+                        <Text text="— OR —"
+                              class="mdmLabelXs"/>
+                    </VBox>
+
+                    <VBox width="42%">
+                        <Label text="Existing Business Partner" labelFor="inExtendBp"/>
+                        <Input id="inExtendBp" width="100%" placeholder="Search an existing BP to extend…"
+                               showValueHelp="true" valueHelpRequest=".onExtendSearch"
+                               value="{rt>/extendBp}"/>
+                    </VBox>
+                </HBox>
+
+                <!-- ── EXTEND mode context strip ─────────────────────── -->
+                <MessageStrip id="msExtendCtx"
+                              visible="{= ${rt>/mode} === 'EXTEND' &amp;&amp; !!${rt>/extendBp} }"
+                              type="Information"
+                              showIcon="true"
+                              showCloseButton="true"
+                              class="sapUiSmallMarginTop"
+                              text="{= 'Extending BP: ' + ${rt>/extendBp} + '. Existing field values are pre-filled and editable. Prerequisite fields show existing extensions.'}"/>
+
+                <!-- ── BP Roles + Account Group block ─────────────────── -->
+                <VBox id="rolesBlock" visible="{rt>/started}" class="sapUiSmallMarginTop">
+                    <Label text="BP Roles" required="true" labelFor="inRolesDisplay"
+                           class="sapUiTinyMarginBottom"/>
+                    <MultiInput id="inRolesDisplay" width="100%"
+                                placeholder="Click to select BP roles..."
+                                editable="true"
+                                showValueHelp="true"
+                                valueHelpOnly="true"
+                                tokens="{rt>/roleTokens}"
+                                valueHelpRequest=".onBpRoleValueHelp"
+                                tokenUpdate=".onBpRoleTokenUpdate">
+                        <tokens>
+                            <Token key="{rt>key}" text="{rt>text}"
+                                   editable="{= !${rt>isPrereq} }"/>
+                        </tokens>
+                    </MultiInput>
+
+                    <HBox alignItems="End" class="sapUiSmallMarginTop">
+                        <VBox width="33%" class="sapUiTinyMarginEnd">
+                            <Label text="BP Account Group" required="true" labelFor="selBpAg"/>
+                            <Input id="selBpAg" width="100%"
+                                   placeholder="Click to select account group..."
+                                   value="{rt>/bpAgDisp}"
+                                   editable="true"
+                                   showValueHelp="true"
+                                   valueHelpOnly="true"
+                                   valueHelpRequest=".onBpAgValueHelp"/>
+                        </VBox>
+                        <VBox width="33%" class="sapUiTinyMarginEnd">
+                            <Label text="BP Number" labelFor="inBpNumber"/>
+                            <Input id="inBpNumber" width="100%" value="{rt>/bpNumber}"
+                                   editable="{rt>/bpNumberEditable}"
+                                   placeholder="{rt>/bpNumberPlaceholder}"/>
+                        </VBox>
+                        <VBox width="33%">
+                            <Label text="Number Range" labelFor="inNumberRange"/>
+                            <Input id="inNumberRange" width="100%" value="{rt>/numberRange}"
+                                   editable="false"/>
+                        </VBox>
+                    </HBox>
+
+                    <HBox alignItems="End" class="sapUiSmallMarginTop">
+                        <VBox width="33%" class="sapUiTinyMarginEnd">
+                            <Label text="Priority" labelFor="selPriority"/>
+                            <Select id="selPriority" width="100%"
+                                    selectedKey="{rt>/priority}">
+                                <core:Item key="NORMAL" text="Normal"/>
+                                <core:Item key="HIGH"   text="High"/>
+                            </Select>
+                        </VBox>
+                    </HBox>
+
+                    <!-- BP Number status — only relevant when this account group uses
+                         external numbering, so the field above is actually editable. -->
+                    <MessageStrip class="sapUiSmallMarginTop"
+                                  visible="{rt>/bpNumberEditable}"
+                                  showIcon="true"
+                                  type="{= ${rt>/bpNumber} ? 'Success' : 'Warning' }"
+                                  text="{= ${rt>/bpNumber}
+                                        ? ('BP Number set: ' + ${rt>/bpNumber} + '. You may proceed with the other tabs.')
+                                        : 'BP Number required. This account group uses external numbering — enter the BP number above to continue.' }"/>
+                </VBox>
+            </VBox>
+
+            <!-- ── Empty state (no roles yet) ─────────────────────────── -->
+            <IllustratedMessage id="cbpEmpty" visible="{= !${rt>/hasRoles} }"
+                                illustrationType="sapIllus-AddDimensions"
+                                title="Select a BP Role to begin"
+                                description="Pick a category and one or more BP roles above. The portal generates the input form from the field configuration assigned to those roles."/>
+
+            <!-- ── Active Role switcher — only shown when a selected role has
+                 auto-pulled prerequisite roles (wireframe: hidden for single role) ── -->
+            <VBox visible="{rt>/hasRoles}" class="sapUiMediumMarginBeginEnd sapUiSmallMarginTop sapUiTinyMarginBottom">
+                <Label id="cbpRoleBarLabel" text="ACTIVE ROLE" class="sapUiTinyMarginBottom mdmRoleBarLabel"/>
+                <SegmentedButton id="cbpRoleBar" width="100%" select=".onActiveRoleChange"/>
+            </VBox>
+
+            <!-- ── Dynamic tabs (built in controller from selected roles) ── -->
+            <IconTabBar id="cbpTabs" visible="{rt>/hasRoles}" expanded="true"
+                        class="sapUiMediumMarginBeginEnd sapUiResponsiveContentPadding">
+                <items/>
+            </IconTabBar>
+        </content>
+
+        <footer>
+            <OverflowToolbar>
+                <ToolbarSpacer/>
+                <Button id="btnCancel"     text="Cancel"          type="Default"     press=".onCancel"/>
+                <Button id="btnSaveDraft"  text="Save Draft"      icon="sap-icon://save"
+                        type="Transparent" press=".onSaveDraft"   enabled="{rt>/started}"/>
+                <Button id="btnSaveCreate" text="Save &amp; Create" type="Emphasized"
+                        press=".onSaveCreate" enabled="{rt>/canSave}"/>
+            </OverflowToolbar>
+        </footer>
+    </Page>
+</mvc:View>

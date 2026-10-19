@@ -13,22 +13,10 @@ build-parameters:
       commands:
         - npm ci
         - npx cds build --production
-        # Fix start command — cds run instead of node srv/server.js
-        - node -e "const fs=require('fs');let p=JSON.parse(fs.readFileSync('gen/srv/package.json','utf8'));delete p.main;p.scripts.start='cds run';fs.writeFileSync('gen/srv/package.json',JSON.stringify(p,null,2))"
-        # Remove server.js — cds run handles bootstrapping. Uses fs.rmSync
-        # (not `rm -f`) so this build runs identically on Windows, Mac, and
-        # Linux — `rm` isn't a real Windows executable.
-        - node -e "require('fs').rmSync('gen/srv/srv/server.js',{force:true})"
-        # Copy cds.json to gen/srv — CAP needs it for DB config. Uses
-        # fs.copyFileSync instead of the Unix `cp` command for the same
-        # cross-platform reason as above.
-        - node -e "require('fs').copyFileSync('cds.json','gen/srv/.cdsrc.json')"
-        # Build SQLite DB with schema + seed data. File moves/deletes use
-        # fs.rmSync/fs.renameSync directly rather than shelling out to
-        # `rm`/`mv` (neither exists on Windows) — only the actual `npx cds
-        # deploy` CLI call goes through execSync, since npx itself works
-        # fine cross-platform.
-        - node -e "const fs=require('fs'),{execSync}=require('child_process');fs.rmSync('gen/srv/db.sqlite',{force:true});fs.renameSync('gen/srv/srv/csn.json','gen/srv/srv/csn.json.bak');execSync('npx cds deploy --to sqlite:gen/srv/db.sqlite',{cwd:process.cwd(),stdio:'inherit'});fs.renameSync('gen/srv/srv/csn.json.bak','gen/srv/srv/csn.json')"
+        # Fix start command — use cds-serve (available in @sap/cds runtime)
+        - node -e "const fs=require('fs');let p=JSON.parse(fs.readFileSync('gen/srv/package.json','utf8'));delete p.main;p.scripts.start='cds-serve';fs.writeFileSync('gen/srv/package.json',JSON.stringify(p,null,2))"
+        # Remove server.js — cds-serve handles bootstrapping
+        - rm -f gen/srv/srv/server.js
         # Pre-copy UI5 webapp into approuter
         - node -e "const fs=require('fs'),p=require('path');function cp(src,dst){const st=fs.statSync(src);if(st.isDirectory()){fs.mkdirSync(dst,{recursive:true});fs.readdirSync(src).forEach(f=>cp(p.join(src,f),p.join(dst,f)))}else{fs.copyFileSync(src,dst)}};cp('app/webapp','app/router/webapp');cp('app/router/index.html','app/router/webapp/index.html')"
 
@@ -43,10 +31,20 @@ modules:
       - name: mdm-portal-uaa
       - name: mdm-portal-destination
       - name: mdm-portal-connectivity
+      - name: mdm-portal-db
     provides:
       - name: srv-api
         properties:
           srv-url: ${default-url}
+
+  # ── HANA DB Deployer (schema + seed data) ──────────────────────────
+  - name: mdm-portal-db-deployer
+    type: hdb
+    path: gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+    requires:
+      - name: mdm-portal-db
 
   # ── App Router (serves UI5 frontend) ───────────────────────────────
   - name: mdm-portal-approuter
@@ -98,3 +96,9 @@ resources:
       service: connectivity
       service-plan: lite
       service-name: mdm-portal-connectivity
+
+  # ── HANA HDI container (hdi-shared) — existing instance ────────────
+  - name: mdm-portal-db
+    type: org.cloudfoundry.existing-service
+    parameters:
+      service-name: mdm-portal-db

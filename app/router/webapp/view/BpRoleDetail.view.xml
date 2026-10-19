@@ -1,0 +1,293 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mvc:View
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:core="sap.ui.core"
+    xmlns:l="sap.ui.layout"
+    controllerName="mdm.portal.controller.BpRoleDetail"
+    displayBlock="true">
+
+    <Page busy="{view>/busy}" busyIndicatorDelay="0" id="detailPage" showNavButton="true" navButtonPress=".onNavBack">
+
+        <customHeader>
+            <Bar>
+                <contentLeft>
+                    <Button icon="sap-icon://nav-back" type="Transparent" press=".onNavBack"/>
+                    <Title id="pageTitle" text="" level="H4"/>
+                </contentLeft>
+            </Bar>
+        </customHeader>
+
+        <content>
+            <IconTabBar id="detailTabs" select=".onTabSelect" expanded="true"
+                        class="sapUiResponsiveContentPadding">
+                <items>
+
+                    <!-- TAB 1 - General -->
+                    <IconTabFilter text="General" key="general" icon="sap-icon://hint">
+                        <VBox class="sapUiMediumMarginBeginEnd">
+                            <Title text="Role Attributes" level="H4"
+                                   class="sapUiSmallMarginTop sapUiSmallMarginBottom"/>
+                            <l:Grid defaultSpan="L6 M6 S12" hSpacing="2">
+                                <l:content>
+                                    <VBox>
+                                        <Label text="BP Role Name" required="true" labelFor="inId"/>
+                                        <Input id="inId" value="{role_id}" placeholder="e.g. FLVN01"
+                                               editable="{view>/isNew}"
+                                               maxLength="10" liveChange=".onFieldChange"/>
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Description" required="true" labelFor="inDescription"/>
+                                        <Input id="inDescription" value="{description}"
+                                               placeholder="e.g. Vendor (Fin. Accounting)"
+                                               maxLength="100" liveChange=".onFieldChange"/>
+                                    </VBox>
+                                </l:content>
+                            </l:Grid>
+
+                            <l:Grid defaultSpan="L12 M12 S12" hSpacing="2" class="sapUiSmallMarginTop">
+                                <l:content>
+                                    <VBox>
+                                        <Label text="Master Data Type" required="true" labelFor="selMDT"/>
+                                        <RadioButtonGroup id="selMDT" columns="3" width="100%"
+                                                          select=".onFieldChange">
+                                            <RadioButton text="Customer"/>
+                                            <RadioButton text="Vendor"/>
+                                            <RadioButton text="Both"/>
+                                        </RadioButtonGroup>
+                                    </VBox>
+                                </l:content>
+                            </l:Grid>
+
+                            <l:Grid defaultSpan="L6 M6 S12" hSpacing="2" class="sapUiSmallMarginTop">
+                                <l:content>
+                                    <VBox>
+                                        <Label text="Sequence" required="true" labelFor="inSequence"/>
+                                        <Input id="inSequence" value="{sequence}" type="Number"
+                                               placeholder="e.g. 1" liveChange=".onFieldChange"/>
+                                    </VBox>
+                                    <VBox>
+                                        <Label text="Active" labelFor="swActive"/>
+                                        <Switch id="swActive" state="{active}"
+                                                customTextOn="Yes" customTextOff="No"
+                                                change=".onFieldChange"/>
+                                    </VBox>
+                                </l:content>
+                            </l:Grid>
+
+                            <l:Grid defaultSpan="L6 M6 S12" hSpacing="2" class="sapUiSmallMarginTop">
+                                <l:content>
+                                    <VBox>
+                                        <Label text="Initial BP Required" labelFor="swInitBP"/>
+                                        <Switch id="swInitBP" state="{initial_bp_required}"
+                                                customTextOn="Yes" customTextOff="No"
+                                                change=".onFieldChange"/>
+                                    </VBox>
+                                </l:content>
+                            </l:Grid>
+
+                          
+                        </VBox>
+                    </IconTabFilter>
+
+                    <!-- TAB 2 - Field Assignment -->
+                    <IconTabFilter id="tabFields" text="Field Assignment" key="fields"
+                                   count="{view>/fieldCount}" icon="sap-icon://form">
+                        <VBox>
+                            <Toolbar class="sapUiSmallMarginTop">
+                                <Title text="Field Assignment" level="H4"/>
+                                <Text text="{view>/fieldCount} fields · grouped by Main / Sub Group"
+                                      class="sapUiSmallMarginBegin mdmSubtitleText"/>
+                                <ToolbarSpacer/>
+                                <Button text="Assign Fields" icon="sap-icon://add" type="Emphasized"
+                                        press=".onAssignFields"/>
+                            </Toolbar>
+                            <Table id="fieldsTable"
+                                   noDataText="{= ${view>/isNew} ? 'No fields added yet — anything you assign here is saved together with the role.' : 'No fields assigned yet.'}"
+                                   fixedLayout="true"
+                                   alternateRowColors="false"
+                                   showSeparators="Inner"
+                                   groupHeaderFactory=".createFieldGroupHeader"
+                                   items="{
+                                       path: 'assigned>/items',
+                                       sorter: [
+                                           { path: 'group_key', group: true, descending: false },
+                                           { path: 'sequence',  descending: false }
+                                       ]
+                                   }">
+                                <columns>
+                                    <Column width="22%"><Label text="Main ▸ Sub Group" design="Bold"/></Column>
+                                    <Column width="13%"><Label text="Field Name"   design="Bold"/></Column>
+                                    <Column width="42%"><Label text="Description"  design="Bold"/></Column>
+                                    <Column width="15%" hAlign="Center"><Label text="Field Status"  design="Bold"/></Column>
+                                    <Column width="8%" hAlign="End"/>
+                                </columns>
+                                <items>
+                                    <ColumnListItem type="Active" press=".onFieldRowPress">
+                                        <cells>
+                                            <Text text="{assigned>group_path}" wrapping="false"
+                                                  class="mdmSubtitleText"/>
+                                            <Link text="{assigned>field_id}" press=".onFieldLinkPress" wrapping="false"/>
+                                            <Text text="{assigned>description}" wrapping="false"/>
+                                            <ObjectStatus
+                                                text="{path: 'assigned>field_status', formatter: '.formatStatusText'}"
+                                                state="{path: 'assigned>field_status', formatter: '.formatStatusState'}"/>
+                                            <Button icon="sap-icon://decline" type="Transparent"
+                                                    tooltip="Remove from this role"
+                                                    press=".onRemoveAssignedField"/>
+                                        </cells>
+                                    </ColumnListItem>
+                                </items>
+                            </Table>
+                        </VBox>
+                    </IconTabFilter>
+
+                    <!-- TAB 3 - Prerequisite Fields -->
+                    <IconTabFilter id="tabPrereq" text="Prerequisite Fields" key="prereq"
+                                   count="{view>/prereqCount}" icon="sap-icon://chain-link">
+                        <VBox class="sapUiMediumMarginBeginEnd">
+                       
+                            <Toolbar>
+                                <Title text="Prerequisite Fields (in prompt order)" level="H4"/>
+                                <ToolbarSpacer/>
+                                <Button text="Add Prerequisite" icon="sap-icon://add" type="Transparent"
+                                        press=".onAddPrereq" enabled="{= !${view>/isNew}}"/>
+                            </Toolbar>
+                            <Table id="prereqTable"
+                                   noDataText="No prerequisite fields defined."
+                                   fixedLayout="true" alternateRowColors="true"
+                                   items="{prereq>/items}">
+                                <columns>
+                                    <Column width="4rem" hAlign="Center"><Label text="Order" design="Bold"/></Column>
+                                    <Column width="7rem"><Label text="Field Name" design="Bold"/></Column>
+                                    <Column><Label text="Description" design="Bold"/></Column>
+                                    <Column width="7rem"><Label text="Source Group" design="Bold"/></Column>
+                                    <Column width="6rem"><Label text="Data Type" design="Bold"/></Column>
+                                    <Column width="3rem" hAlign="End"/>
+                                </columns>
+                                <items>
+                                    <ColumnListItem>
+                                        <cells>
+                                            <Text text="{prereq>sequence}" wrapping="false"/>
+                                            <Link text="{prereq>field_id}" press=".onPrereqLinkPress" wrapping="false"/>
+                                            <Text text="{prereq>description}" wrapping="false"/>
+                                            <Text text="{prereq>group_path}" wrapping="false"/>
+                                            <Text text="{prereq>data_type}" wrapping="false"/>
+                                            <Button icon="sap-icon://decline" type="Transparent"
+                                                    tooltip="Remove prerequisite"
+                                                    press=".onRemovePrereqField"/>
+                                        </cells>
+                                    </ColumnListItem>
+                                </items>
+                            </Table>
+                        </VBox>
+                    </IconTabFilter>
+
+                    <!-- TAB 4 - Prerequisite Roles -->
+                    <IconTabFilter id="tabPrereqRoles" text="Prerequisite Roles" key="prereqroles"
+                                   count="{view>/prereqRolesCount}" icon="sap-icon://org-chart">
+                        <VBox class="sapUiMediumMarginBeginEnd">
+                            <Toolbar class="sapUiSmallMarginTop">
+                                <Title text="Prerequisite Roles" level="H4"/>
+                                <ToolbarSpacer/>
+                                <Button text="Add Role" icon="sap-icon://add" type="Transparent"
+                                        press=".onAddPrereqRole" enabled="{= !${view>/isNew}}"/>
+                            </Toolbar>
+                           
+                            <Table id="prereqRolesTable"
+                                   noDataText="No prerequisite roles defined."
+                                   fixedLayout="true" alternateRowColors="true"
+                                   items="{prereqroles>/items}">
+                                <columns>
+                                    <Column width="7rem"><Label text="Role Name" design="Bold"/></Column>
+                                    <Column><Label text="Description" design="Bold"/></Column>
+                                    <Column width="8rem"><Label text="Master Data Type" design="Bold"/></Column>
+                                    <Column width="6rem" hAlign="Center"><Label text="Auto Pull" design="Bold"/></Column>
+                                    <Column width="3rem" hAlign="End"/>
+                                </columns>
+                                <items>
+                                    <ColumnListItem type="Active" press=".onPrereqRolePress">
+                                        <cells>
+                                            <Link text="{prereqroles>role_id}" press=".onPrereqRoleLinkPress" wrapping="false"/>
+                                            <Text text="{prereqroles>description}" wrapping="false"/>
+                                            <Text text="{prereqroles>mdt}" wrapping="false"/>
+                                            <ObjectStatus
+                                                text="{= ${prereqroles>auto_pull} ? 'Yes' : 'No'}"
+                                                state="{= ${prereqroles>auto_pull} ? 'Success' : 'None'}"/>
+                                            <Button icon="sap-icon://decline" type="Transparent"
+                                                    tooltip="Remove prerequisite role"
+                                                    press=".onRemovePrereqRole"/>
+                                        </cells>
+                                    </ColumnListItem>
+                                </items>
+                            </Table>
+                        </VBox>
+                    </IconTabFilter>
+
+                    <!-- TAB 5 - Change Log -->
+                                        <IconTabFilter text="Change Log" key="changelog" icon="sap-icon://history">
+                        <VBox class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop sapUiSmallMarginBottom">
+                            <Title text="Record Information" level="H5" class="sapUiTinyMarginBottom"/>
+                            <HBox wrap="Wrap">
+                                <VBox width="12rem" class="sapUiTinyMarginEnd">
+                                    <Label text="Created On" design="Bold"/>
+                                    <Text id="clCreatedAt" text="{view>/clCreatedAt}" wrapping="false"/>
+                                </VBox>
+                                <VBox width="12rem" class="sapUiTinyMarginEnd">
+                                    <Label text="Created By" design="Bold"/>
+                                    <Text id="clCreatedBy" text="{view>/clCreatedBy}" wrapping="false"/>
+                                </VBox>
+                                <VBox width="12rem" class="sapUiTinyMarginEnd">
+                                    <Label text="Last Modified On" design="Bold"/>
+                                    <Text id="clModifiedAt" text="{view>/clModifiedAt}" wrapping="false"/>
+                                </VBox>
+                                <VBox width="12rem">
+                                    <Label text="Last Modified By" design="Bold"/>
+                                    <Text id="clModifiedBy" text="{view>/clModifiedBy}" wrapping="false"/>
+                                </VBox>
+                            </HBox>
+                        </VBox>
+                        <Table id="logTable"
+                               noDataText="No changes recorded yet."
+                               alternateRowColors="true"
+                               items="{path: '/AuditLogs', suspended: true}">
+                            <columns>
+                                <Column width="11rem"><Label text="Timestamp" design="Bold"/></Column>
+                                <Column width="9rem"><Label text="User" design="Bold"/></Column>
+                                <Column width="7rem"><Label text="Action" design="Bold"/></Column>
+                                <Column><Label text="Before" design="Bold"/></Column>
+                                <Column><Label text="After" design="Bold"/></Column>
+                            </columns>
+                            <items>
+                                <ColumnListItem>
+                                    <cells>
+                                        <Text text="{acted_at}" wrapping="false"/>
+                                        <Text text="{actor}"    wrapping="false"/>
+                                        <ObjectStatus
+                                            text="{action}"
+                                            state="{= ${action} === 'CREATE' ? 'Success' :
+                                                   ${action} === 'DELETE' ? 'Error'   :
+                                                   ${action} === 'UPDATE' ? 'Warning' : 'None'}"/>
+                                        <Text text="{before_value}" maxLines="3"/>
+                                        <Text text="{after_value}"  maxLines="3"/>
+                                    </cells>
+                                </ColumnListItem>
+                            </items>
+                        </Table>
+                    </IconTabFilter>
+
+                </items>
+            </IconTabBar>
+        </content>
+
+        <footer>
+            <OverflowToolbar>
+                <ToolbarSpacer/>
+                <Button id="btnCopy" text="Copy Role" icon="sap-icon://copy"
+                        type="Transparent" press=".onCopy"/>
+                <Button id="btnCancel" text="Cancel" type="Default" press=".onCancel"/>
+                <Button id="btnSave" text="Save" type="Emphasized" press=".onSave"/>
+            </OverflowToolbar>
+        </footer>
+    </Page>
+</mvc:View>
