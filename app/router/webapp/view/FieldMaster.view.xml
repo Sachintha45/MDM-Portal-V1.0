@@ -1,0 +1,353 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mvc:View
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:f="sap.f"
+    xmlns:core="sap.ui.core"
+    xmlns:l="sap.ui.layout"
+    controllerName="mdm.portal.controller.FieldMaster"
+    displayBlock="true">
+
+    <!--
+        sapUiSizeCondensed on DynamicPage: propagates to ALL children
+        (filter bar, toolbar buttons, table rows) for a dense professional look.
+        fitContent="true": aligns "Field Master" heading with the table left edge.
+    -->
+    <f:DynamicPage
+        id="fieldMasterPage"
+        fitContent="true"
+        toggleHeaderOnTitleClick="false" headerExpanded="true"
+        preserveHeaderStateOnScroll="false"
+        class="sapUiSizeCondensed sapMDMFieldMasterPage">
+
+        <!-- ── Title ─────────────────────────────────────── -->
+        <f:title>
+            <f:DynamicPageTitle>
+
+                <f:heading>
+                    <Title text="{i18n>fieldmastertitle}" level="H2" wrapping="false"/>
+                </f:heading>
+
+                <f:snappedHeading>
+                    <Title text="{i18n>fieldmastertitle}" level="H3" wrapping="false"/>
+                </f:snappedHeading>
+
+                <!--
+                    FIX: All actions in <f:actions> — NOT <f:navigationActions>.
+                    navigationActions renders controls in the shell header zone
+                    (top-right, alongside search/profile), which is wrong.
+                    f:actions renders them right-aligned below the heading.
+
+                    OverflowToolbar inside f:actions gives automatic collapse
+                    of Export/Import to ⋮ when the screen is narrow.
+                -->
+                <f:actions>
+                    <OverflowToolbar style="Clear">
+                        <Button id="exportBtn"
+                                text="{i18n>btn.export}"
+                                icon="sap-icon://download"
+                                type="Transparent"
+                                press=".onExport">
+                            <layoutData>
+                                <OverflowToolbarLayoutData priority="Low"
+                                    overflowText="Export"/>
+                            </layoutData>
+                        </Button>
+                        <Button id="importBtn"
+                                text="{i18n>btn.import}"
+                                icon="sap-icon://upload"
+                                type="Transparent"
+                                press=".onImport">
+                            <layoutData>
+                                <OverflowToolbarLayoutData priority="Low"
+                                    overflowText="Import"/>
+                            </layoutData>
+                        </Button>
+                        <Button id="addFieldBtn"
+                                text="{i18n>fieldMaster.newField}"
+                                icon="sap-icon://add"
+                                type="Emphasized"
+                                press=".onAdd">
+                            <layoutData>
+                                <OverflowToolbarLayoutData priority="NeverOverflow"/>
+                            </layoutData>
+                        </Button>
+                    </OverflowToolbar>
+                </f:actions>
+
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <!-- ── Filter header ─────────────────────────────── -->
+        <f:header>
+            <f:DynamicPageHeader pinnable="false" backgroundDesign="Translucent">
+                <!--
+                    Grid XL3 L3 M6 S12: 4 columns on Large/XL, 2 on Medium,
+                    1 on Small — filters reflow cleanly without OverflowToolbar
+                    clipping. Each filter cell is a labelled VBox.
+                -->
+                <VBox>
+                <l:Grid defaultSpan="XL3 L3 M6 S12"
+                        hSpacing="1" vSpacing="0.5"
+                        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTopBottom">
+                    <l:content>
+                        <VBox>
+                            <Label text="{i18n>filter.fieldName}"
+                                   labelFor="filterSearch" design="Bold"/>
+                            <Input id="filterSearch" placeholder="{i18n>filter.search}"
+                                   showClearIcon="true" width="100%"
+                                   liveChange=".onFilterLiveChange"/>
+                        </VBox>
+                    </l:content>
+                    <l:content>
+                        <VBox>
+                            <Label text="{i18n>filter.masterDataType}"
+                                   labelFor="filterMasterDataType" design="Bold"/>
+                            <Select id="filterMasterDataType" width="100%"
+                                    change=".onFilterChange" selectedKey=""
+                                    forceSelection="false"
+                                    items="{path: 'filters>/masterDataTypes'}">
+                                <core:ListItem key="{filters>key}" text="{filters>text}"/>
+                            </Select>
+                        </VBox>
+                    </l:content>
+                    <!-- <l:content>
+                        <VBox>
+                            <Label text="{i18n>filter.mainGroup}"
+                                   labelFor="filterMainGroup" design="Bold"/>
+                            <Select id="filterMainGroup" width="100%"
+                                    change=".onFilterChange" selectedKey=""
+                                    forceSelection="false"
+                                    items="{path: 'filters>/mainGroups'}">
+                                <core:ListItem key="{filters>key}" text="{filters>text}"/>
+                            </Select>
+                        </VBox>
+                    </l:content> -->
+                    <l:content>
+                        <VBox>
+                            <Label text="{i18n>filter.displayType}"
+                                   labelFor="filterDisplayType" design="Bold"/>
+                            <Select id="filterDisplayType" width="100%"
+                                    change=".onFilterChange" selectedKey=""
+                                    forceSelection="false"
+                                    items="{path: 'filters>/displayTypes'}">
+                                <core:ListItem key="{filters>key}" text="{filters>text}"/>
+                            </Select>
+                        </VBox>
+                    </l:content>
+                    <l:content>
+                        <VBox>
+                            <Label text="{i18n>lbl.status}" labelFor="filterActive" design="Bold"/>
+                            <Select id="filterActive" width="100%"
+                                    change=".onFilterChange" forceSelection="false">
+                                <core:Item key=""      text="{i18n>lbl.all}"/>
+                                <core:Item key="true"  text="{i18n>lbl.active}"/>
+                                <core:Item key="false" text="{i18n>lbl.inactive}"/>
+                            </Select>
+                        </VBox>
+                    </l:content>
+                </l:Grid>
+                    <Toolbar style="Clear" class="sapUiSmallMarginTop">
+                        <ToolbarSpacer/>
+                        <Button id="clearFiltersBtn" text="{i18n>btn.clear}" type="Transparent" press=".onClearFilters"/>
+                        <Button id="goButton" text="{i18n>btn.go}" type="Emphasized" press=".onGo"/>
+                    </Toolbar>
+                </VBox>
+            </f:DynamicPageHeader>
+        </f:header>
+
+        <!-- ── Table ─────────────────────────────────────── -->
+        <f:content>
+            <VBox>
+
+                <MessageStrip id="pageMessageStrip" text="" type="Information"
+                              showCloseButton="true" visible="false"
+                              class="sapUiSmallMarginBegin sapUiSmallMarginEnd
+                                     sapUiSmallMarginTop"/>
+
+                <!--
+                    fixedLayout="true"  + explicit rem widths on every column:
+                    The browser respects the exact widths and clips overflowing
+                    text with an ellipsis — every row stays exactly one line tall.
+
+                    Main Group / Sub Group columns removed from display (2026-07) —
+                    their freed width (7rem + 6rem = 13rem) has been redistributed
+                    across Field ID, Description, Data Type, Length and Display Type
+                    below so the table still fills the same overall space.
+                    main_group/sub_group are still fetched via $expand/$select on
+                    the items binding below — the Export feature (onExport in the
+                    controller) still reads main_group/description and
+                    sub_group/description from each row's context even though the
+                    columns are no longer shown here.
+                -->
+                <Table
+                    id="fieldTable"
+                    items="{
+                        path: '/FieldMasters',
+                        parameters: {
+                            $count: true,
+                            $expand: 'main_group,sub_group',
+                           $select: 'field_id,description,data_type,length,display_type,value_table_code,validation_code,active,grid,main_group_group_id,sub_group_group_id,main_group,sub_group'
+                        }
+                    }"
+                    growing="true"
+                    growingThreshold="30"
+                    growingScrollToLoad="true"
+                    noDataText="{i18n>fieldMaster.noData}"
+                    mode="MultiSelect"
+                    fixedLayout="true"
+                    alternateRowColors="true"
+                    sticky="ColumnHeaders,HeaderToolbar"
+                    selectionChange=".onSelectionChange"
+                    class="sapMDMFormalTable">
+
+                    <headerToolbar>
+                        <OverflowToolbar id="tableToolbar" style="Clear">
+                            <Title id="tableTitle" text="{i18n>fieldMaster.tableTitle}" level="H3"/>
+                            <ToolbarSpacer/>
+                            <Button id="bulkActivateBtn" text="{i18n>btn.bulkActivate}"
+                                    icon="sap-icon://accept" type="Success"
+                                    visible="false" press=".onBulkActivate">
+                                <layoutData>
+                                    <OverflowToolbarLayoutData priority="NeverOverflow"/>
+                                </layoutData>
+                            </Button>
+                            <Button id="bulkDeleteBtn" text="{i18n>btn.delete}"
+                                    icon="sap-icon://delete" type="Negative"
+                                    visible="false" press=".onBulkDelete">
+                                <layoutData>
+                                    <OverflowToolbarLayoutData priority="NeverOverflow"/>
+                                </layoutData>
+                            </Button>
+                            <ToolbarSeparator id="bulkSeparator" visible="false"/>
+                            <Button icon="sap-icon://action-settings"
+                                    type="Transparent" tooltip="Column settings"
+                                    press=".onColumnSettings">
+                                <layoutData>
+                                    <OverflowToolbarLayoutData priority="Low"/>
+                                </layoutData>
+                            </Button>
+                        </OverflowToolbar>
+                    </headerToolbar>
+
+                    <!--
+                        Every column has an explicit width.
+                        fixedLayout="true" enforces them exactly.
+                        Text cells use wrapping="false" so the browser
+                        clips overflowing content — no multi-line rows.
+                    -->
+                    <columns>
+                        <Column id="colFieldName"
+                                width="8rem" vAlign="Middle" importance="High">
+                            <Label text="{i18n>col.fieldId}" design="Bold"/>
+                        </Column>
+                        <Column id="colDescription"
+                                width="16rem" vAlign="Middle" importance="High">
+                            <Label text="{i18n>col.description}" design="Bold"/>
+                        </Column>
+                        <Column id="colDataType"
+                                width="5rem" vAlign="Middle" hAlign="Center"
+                                importance="Medium">
+                            <Label text="{i18n>col.dataType}" design="Bold"/>
+                        </Column>
+                        <Column id="colLength"
+                                width="4rem" vAlign="Middle" hAlign="End"
+                                importance="Low">
+                            <Label text="{i18n>col.length}" design="Bold"/>
+                        </Column>
+                        <Column id="colValueTable"
+                                width="5rem" vAlign="Middle" hAlign="Center"
+                                importance="Low">
+                            <Label text="{i18n>col.valueTable}" design="Bold"/>
+                        </Column>
+                        <Column id="colDisplayType"
+                                width="7rem" vAlign="Middle" importance="Low">
+                            <Label text="{i18n>filter.displayType}" design="Bold"/>
+                        </Column>
+                        <Column id="colValidation"
+                                width="5rem" vAlign="Middle" hAlign="Center"
+                                importance="Low">
+                            <Label text="{i18n>col.validation}" design="Bold"/>
+                        </Column>
+                        <Column id="colGrid"
+                                width="4rem" vAlign="Middle" hAlign="Center"
+                                importance="Low">
+                            <Label text="{i18n>col.grid}" design="Bold"/>
+                        </Column>
+                        <Column id="colStatus"
+                                width="5rem" vAlign="Middle" hAlign="Center"
+                                importance="High">
+                            <Label text="{i18n>lbl.status}" design="Bold"/>
+                        </Column>
+                        <Column id="colActions"
+                                width="2.5rem" vAlign="Middle" hAlign="End"
+                                importance="High"/>
+                    </columns>
+
+                    <items>
+                        <ColumnListItem type="Active" press=".onRowPress">
+                            <cells>
+
+                                <Link text="{field_id}"
+                                      press=".onFieldLinkPress"
+                                      wrapping="false"/>
+
+                                <Text text="{description}"
+                                      wrapping="false" maxLines="1"/>
+
+                                <Text text="{= ${data_type} ? ${data_type} : '—'}"
+                                      wrapping="false"/>
+
+                                <Text text="{= ${length} ? ${length} : '—'}"
+                                      wrapping="false"/>
+
+                                <Text text="{= ${value_table_code} ? ${value_table_code} : '—'}"
+                                      wrapping="false"/>
+
+                                <!--
+                                    FIX: inline formatter function removed.
+                                    The XML binding parser rejects the 'function'
+                                    keyword — use a named controller method instead.
+                                    Controller must implement: formatDisplayType(c, m)
+                                -->
+                                <Text text="{
+                                    parts: [
+                                        {path: 'display_type'},
+                                        {path: 'filters>/displayTypeMap'}
+                                    ],
+                                    formatter: '.formatDisplayType'
+                                }" wrapping="false"/>
+
+                                <Text text="{= ${validation_code} ? ${validation_code} : '—'}"
+                                      wrapping="false"/>
+
+                                <Text text="{path: 'grid', formatter: '.formatGridText'}"
+                                      wrapping="false"/>
+
+                                <!--
+                                    FIX: inverted="true" removed from ObjectStatus.
+                                    inverted="true" renders a solid filled colour block
+                                    (the large green/red badge seen in the screenshot).
+                                    Without inverted, ObjectStatus renders as a small
+                                    coloured text label — compact and professional.
+                                -->
+                                <ObjectStatus
+                                    text="{path: 'active', formatter: '.formatActiveText'}"
+                                    state="{path: 'active', formatter: '.formatActiveState'}"/>
+
+                                <Button icon="sap-icon://slim-arrow-right"
+                                        type="Transparent"
+                                        tooltip="{i18n>tooltip.openDetail}"
+                                        press=".onFieldLinkPress"/>
+
+                            </cells>
+                        </ColumnListItem>
+                    </items>
+
+                </Table>
+            </VBox>
+        </f:content>
+
+    </f:DynamicPage>
+
+</mvc:View>

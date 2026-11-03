@@ -43,6 +43,7 @@
                             <core:Item key="APPROVED"    text="Approved"/>
                             <core:Item key="REJECTED"    text="Rejected"/>
                             <core:Item key="POSTED"      text="Posted"/>
+                            <core:Item key="POSTING_FAILED" text="Posting Failed"/>
                             <core:Item key="CANCELLED"   text="Cancelled"/>
                         </Select>
                     </VBox>
@@ -112,7 +113,8 @@
                                            ${status} === 'IN_APPROVAL' ? 'Warning' :
                                            ${status} === 'APPROVED'    ? 'Success' :
                                            ${status} === 'POSTED'      ? 'Success' :
-                                           ${status} === 'REJECTED'    ? 'Error'   : 'None'}"/>
+                                           ${status} === 'REJECTED'    ? 'Error'   :
+                                           ${status} === 'POSTING_FAILED' ? 'Error' : 'None'}"/>
                                 <Text text="{priority}" wrapping="false"/>
                                 <Text text="{requester}" wrapping="false"/>
                                 <Text text="{path: 'createdAt', formatter: '.formatDateTime'}" wrapping="false"/>

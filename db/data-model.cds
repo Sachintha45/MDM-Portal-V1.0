@@ -75,7 +75,7 @@ type NotificationChannel    : String(10) @assert.range enum { EMAIL; IN_APP; };
 type NotificationStatus     : String(10) @assert.range enum { PENDING; SENT; FAILED; };
 type OperatorType           : String(10) @assert.range enum { EQ; NE; ![IN]; ![ANY]; BETWEEN; };
 
-type CRRequestType          : String(10) @assert.range enum { CREATE; CHANGE; EXTEND; };
+type CRRequestType          : String(10) @assert.range enum { CREATE; CHANGE; EXTEND; DELETE; };
 type CRPriority             : String(10) @assert.range enum { NORMAL; HIGH; };
 type CRStatus               : String(20) @assert.range enum { DRAFT; IN_APPROVAL; APPROVED; REJECTED; POSTED; POSTING_FAILED; CANCELLED; SENT_BACK; };
 
@@ -91,7 +91,7 @@ entity MasterDataType : managed {
 }
 
 entity FieldGroup : managed {
-    key group_id            : String(20);
+    key group_id            : String(100);
         parent_group_id     : Association to FieldGroup;
         master_data_type    : Association to MasterDataType not null;
         description         : String(100) not null;
@@ -101,7 +101,7 @@ entity FieldGroup : managed {
 }
 
 entity ValueTable : managed {
-    key value_table_id  : String(20);
+    key value_table_id  : String(100);
         description     : String(100) not null;
         source_table    : String(60)  not null;
         input_1         : String(40);

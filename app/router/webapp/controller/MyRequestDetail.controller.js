@@ -1,0 +1,1316 @@
+sap.ui.define([
+    "sap/ui/core/mvc/Controller",
+    "sap/ui/model/json/JSONModel",
+    "sap/m/MessageBox",
+    "sap/m/MessageToast",
+    "sap/m/MessageStrip",
+    "sap/m/Token",
+    "sap/m/SegmentedButtonItem",
+    "sap/m/IconTabFilter",
+    "sap/m/Panel",
+    "sap/m/Title",
+    "sap/m/Label",
+    "sap/m/Text",
+    "sap/m/Input",
+    "sap/m/Select",
+    "sap/m/Table",
+    "sap/m/Column",
+    "sap/m/ColumnListItem",
+    "sap/m/ObjectIdentifier",
+    "sap/m/ObjectStatus",
+    "sap/m/Avatar",
+    "sap/ui/core/Item",
+    "sap/ui/core/Icon",
+    "sap/m/VBox",
+    "sap/m/HBox",
+    "sap/m/Toolbar",
+    "sap/m/ToolbarSpacer"
+], function (
+    Controller, JSONModel, MessageBox, MessageToast, MessageStrip,
+    Token, SegmentedButtonItem, IconTabFilter,
+    Panel, Title, Label, Text, Input, Select,
+    Table, Column, ColumnListItem, ObjectIdentifier, ObjectStatus, Avatar,
+    CoreItem, Icon,
+    VBox, HBox, Toolbar, ToolbarSpacer
+) {
+    "use strict";
+
+    return Controller.extend("mdm.portal.controller.MyRequestDetail", {
+
+        onInit: function () {
+            this._oViewModel = new JSONModel({
+                busy        : false,
+                crId        : "",
+                status      : "",
+                type        : "",
+                category    : "",
+                accountGroup: "",
+                numberRange : "",
+                priority    : "",
+                requester   : "",
+                createdAt   : "",
+                bpNumber    : "",
+                subtitle    : "",
+                roleCount   : 0,
+                activeRole  : ""
+            });
+            this.getView().setModel(this._oViewModel, "view");
+
+            // Stores the loaded data for re-rendering on role switch
+            this._aRoles       = [];
+            this._aFieldVals   = [];
+            this._aAttachments = [];
+            this._mSavedVals   = {};
+            this._mRoleMeta    = {};
+            this._mFieldMeta   = {};
+            this._mGroupMeta   = {};
+
+            var oRouter = this.getOwnerComponent().getRouter();
+            oRouter.getRoute("myRequestDetail").attachPatternMatched(this._onRouteMatched, this);
+        },
+
+        _onRouteMatched: function (oEvent) {
+            var sCrId = decodeURIComponent(oEvent.getParameter("arguments").crId);
+            this._loadCR(sCrId);
+        },
+
+        // ── Load CR data ─────────────────────────────────────────────
+
+        _loadCR: function (sCrId) {
+            var oVm    = this._oViewModel;
+            var oModel = this.getOwnerComponent().getModel();
+            oVm.setProperty("/busy", true);
+            oVm.setProperty("/crId", sCrId);
+            this._clearUI();
+
+            var that   = this;
+            var sBase  = oModel.getServiceUrl().replace(/\/$/, "");
+            var sCrKey = "'" + encodeURIComponent(sCrId) + "'";
+
+            var pHeader = fetch(sBase + "/ChangeRequests(" + sCrKey + ")",
+                { headers: { Accept: "application/json" } })
+                .then(function (r) { return r.json(); });
+
+            var pRoles = fetch(
+                sBase + "/CRBPRoles?$filter=cr_cr_id eq " + sCrKey +
+                "&$select=cr_cr_id,role_role_id,instance_no,auto_pulled&$top=100",
+                { headers: { Accept: "application/json" } })
+                .then(function (r) { return r.json(); })
+                .then(function (d) { return (d && d.value) || []; })
+                .catch(function () { return []; });
+
+            var pFvs = fetch(
+                sBase + "/CRFieldValues?$filter=cr_cr_id eq " + sCrKey +
+                "&$select=cr_cr_id,role_id,instance_no,field_field_id,column_name,counter,new_value,prereq_indicator&$top=5000",
+                { headers: { Accept: "application/json" } })
+                .then(function (r) { return r.json(); })
+                .then(function (d) { return (d && d.value) || []; })
+                .catch(function () { return []; });
+
+            // Also fetch attachments saved against this CR
+            var pAtts = fetch(
+                sBase + "/CRAttachments?$filter=cr_cr_id eq " + sCrKey +
+                "&$select=attachment_id,file_name,size_bytes,mime_type,description,uploaded_by,uploaded_at&$top=200",
+                { headers: { Accept: "application/json" } })
+                .then(function (r) { return r.json(); })
+                .then(function (d) { return (d && d.value) || []; })
+                .catch(function () { return []; });
+
+            Promise.all([pHeader, pRoles, pFvs, pAtts])
+            .then(function (aResults) {
+                var oData  = aResults[0];
+                var aRoles = aResults[1];
+                var aFvs   = aResults[2];
+                var aAtts  = aResults[3];
+
+                oVm.setProperty("/busy",         false);
+                oVm.setProperty("/status",       oData.status       || "\u2014");
+                oVm.setProperty("/type",         oData.request_type || "\u2014");
+                oVm.setProperty("/category",     oData.bp_category_category_id        || "\u2014");
+                oVm.setProperty("/accountGroup", oData.account_group_account_group_id || "\u2014");
+                oVm.setProperty("/priority",     oData.priority     || "NORMAL");
+                oVm.setProperty("/requester",    oData.requester    || "\u2014");
+                oVm.setProperty("/bpNumber",     oData.posted_object_no || "\u2014");
+                oVm.setProperty("/createdAt",    oData.createdAt
+                    ? new Date(oData.createdAt).toLocaleString() : "\u2014");
+                oVm.setProperty("/subtitle",
+                    (oData.request_type || "") + " \u00b7 " +
+                    (oData.bp_category_category_id || "") + " \u00b7 " +
+                    (oData.status || ""));
+
+                // Runs independently of the role/field-tab pipeline below \u2014
+                // populates the "Release / Approval Strategy" tab with the
+                // release codes, assigned approvers and progress that were
+                // determined for this CR (same CRReleaseStep data the
+                // approver's My Approvals screen is built from), which the
+                // requester otherwise has no visibility into.
+                that._loadReleaseStrategy(sBase, sCrId, oData);
+
+                // Fetch Number Range from AccountGroup
+                var sAg = oData.account_group_account_group_id;
+                if (sAg) {
+                    fetch(sBase + "/AccountGroups('" + encodeURIComponent(sAg) + "')?$select=account_group_id,number_range_id,description",
+                        { headers: { Accept: "application/json" } })
+                    .then(function (r) { return r.json(); })
+                    .then(function (ag) {
+                        var sNr = ag.number_range_id
+                            ? ag.number_range_id + (ag.description ? " \u2014 " + ag.description : "")
+                            : "\u2014";
+                        oVm.setProperty("/numberRange", sNr);
+                    }).catch(function () { oVm.setProperty("/numberRange", "\u2014"); });
+                }
+
+                that._aRoles = aRoles.map(function (r) {
+                    return {
+                        role_id    : r.role_role_id || r.role_id || "",
+                        instance_no: r.instance_no,
+                        auto_pulled: !!r.auto_pulled
+                    };
+                });
+
+                // Store attachments for the Attachments tab
+                that._aAttachments = aAtts.map(function (a) {
+                    return {
+                        attachment_id: a.attachment_id,
+                        file_name    : a.file_name    || "",
+                        size_bytes   : a.size_bytes   || 0,
+                        mime_type    : a.mime_type    || "",
+                        description  : a.description  || "",
+                        uploaded_by  : a.uploaded_by  || "",
+                        uploaded_at  : a.uploaded_at
+                            ? new Date(a.uploaded_at).toLocaleString() : ""
+                    };
+                });
+
+                // Build a lookup map of saved values:
+                // { "roleId|fieldId" → { new_value, prereq_indicator } }
+                // Grid-type fields (see FieldMaster.grid) save one CRFieldValue
+                // row PER CELL — column_name + counter identify which column
+                // and which row. Those go into a separate map, grouped back
+                // into rows, instead of collapsing into the single-value map
+                // above (which would just keep overwriting itself down to
+                // the last cell read, same flattening bug fixed in
+                // CreateBp.controller.js's read path — mirrored here since
+                // this is the same "one CRFieldValue row → one field" shape).
+                var mSavedVals = {};
+                var mGridRows  = {};   // "roleId|fieldId" -> { counter: {column_name: value} }
+                aFvs.forEach(function (fv) {
+                    var sKey = (fv.role_id || "") + "|" + (fv.field_field_id || fv.field_id || "");
+                    if (fv.column_name) {
+                        if (!mGridRows[sKey]) { mGridRows[sKey] = {}; }
+                        var iCounter = fv.counter || 1;
+                        if (!mGridRows[sKey][iCounter]) { mGridRows[sKey][iCounter] = {}; }
+                        mGridRows[sKey][iCounter][fv.column_name] = fv.new_value || "";
+                        return;
+                    }
+                    mSavedVals[sKey] = {
+                        new_value       : fv.new_value        || "",
+                        prereq_indicator: !!fv.prereq_indicator
+                    };
+                });
+                that._mSavedVals = mSavedVals;
+                that._mGridRows  = mGridRows;
+
+                oVm.setProperty("/roleCount", that._aRoles.length);
+
+                // Now fetch ALL BPRoleFields for every resolved role so we can
+                // show all assigned fields (not just the ones that were saved),
+                // exactly mirroring the Edit Draft form layout.
+                var aRoleIds = [];
+                that._aRoles.forEach(function (r) {
+                    if (aRoleIds.indexOf(r.role_id) < 0) { aRoleIds.push(r.role_id); }
+                });
+
+                var sRoleFilter = aRoleIds.map(function (id) {
+                    return "role_role_id eq '" + id + "'";
+                }).join(" or ");
+
+                var pRoleFields = aRoleIds.length
+                    ? fetch(sBase + "/BPRoleFields?$filter=" + encodeURIComponent(sRoleFilter) +
+                        "&$select=role_role_id,field_field_id,field_status,sequence,read_only" +
+                        "&$orderby=role_role_id,sequence&$top=5000",
+                        { headers: { Accept: "application/json" } })
+                        .then(function (r) { return r.json(); })
+                        .then(function (d) { return (d && d.value) || []; })
+                        .catch(function () { return []; })
+                    : Promise.resolve([]);
+
+                // Also fetch prereq fields per role
+                var pPrereqFields = aRoleIds.length
+                    ? fetch(sBase + "/BPRolePrereqFields?$filter=" + encodeURIComponent(sRoleFilter) +
+                        "&$select=role_role_id,field_field_id,sequence&$top=500",
+                        { headers: { Accept: "application/json" } })
+                        .then(function (r) { return r.json(); })
+                        .then(function (d) { return (d && d.value) || []; })
+                        .catch(function () { return []; })
+                    : Promise.resolve([]);
+
+                Promise.all([pRoleFields, pPrereqFields]).then(function (aRf) {
+                    var aRoleFieldRows = aRf[0];
+                    var aPrereqRows    = aRf[1];
+
+                    // Build prereq set: { "roleId|fieldId": true }
+                    var mPrereqSet = {};
+                    aPrereqRows.forEach(function (pf) {
+                        mPrereqSet[pf.role_role_id + "|" + pf.field_field_id] = true;
+                    });
+
+                    // Build the complete field list per role, overlaying saved values
+                    that._aFieldVals = aRoleFieldRows
+                        .filter(function (rf) { return rf.field_status !== "SUPPRESS"; })
+                        .map(function (rf) {
+                            var sRoleId  = rf.role_role_id;
+                            var sFieldId = rf.field_field_id;
+                            var sKey     = sRoleId + "|" + sFieldId;
+                            var oSaved   = that._mSavedVals[sKey] || {};
+                            var bPrereq  = !!mPrereqSet[sKey];
+                            // Grid rows, if any, in row order (counter 1, 2, 3...).
+                            // Meaningless/empty for a non-grid field.
+                            var oRowsByCounter = that._mGridRows[sKey] || null;
+                            var aGridRows = oRowsByCounter
+                                ? Object.keys(oRowsByCounter)
+                                    .map(Number)
+                                    .sort(function (a, b) { return a - b; })
+                                    .map(function (c) { return oRowsByCounter[c]; })
+                                : [];
+                            return {
+                                role_id         : sRoleId,
+                                field_id        : sFieldId,
+                                new_value       : oSaved.new_value || "",
+                                instance_no     : 1,
+                                prereq_indicator: bPrereq,
+                                field_status    : rf.field_status  || "OPTIONAL",
+                                sequence        : rf.sequence      || 99,
+                                gridRows        : aGridRows
+                            };
+                        });
+
+                    console.log("[Detail] roleFields:", that._aFieldVals.length,
+                        "savedVals:", Object.keys(that._mSavedVals).length);
+
+                    // Load FieldMaster + FieldGroup metadata, then render
+                    that._loadMeta(sBase);
+                });
+
+            }).catch(function (oErr) {
+                oVm.setProperty("/busy", false);
+                MessageBox.error("Could not load change request: " +
+                    ((oErr && oErr.message) || String(oErr)));
+            });
+        },
+
+        _loadMeta: function (sBase) {
+            var that = this;
+
+            var pRoles = fetch(sBase + "/BPRoles?$select=role_id,description",
+                { headers: { Accept: "application/json" } })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    ((d && d.value) || []).forEach(function (r) {
+                        that._mRoleMeta[r.role_id] = r.description || "";
+                    });
+                }).catch(function () {});
+
+            // Full FieldMaster metadata — need main_group and sub_group for tab grouping.
+            // Note: do NOT restrict $select on association FK scalars — CAP OData V4
+            // may omit them when $selected on the flat entity projection. Instead
+            // fetch the minimal set that guarantees the FK scalars are included.
+            var pFields = fetch(sBase + "/FieldMasters?$select=field_id,description,main_group_group_id,sub_group_group_id,grid&$top=2000",
+                { headers: { Accept: "application/json" } })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    ((d && d.value) || []).forEach(function (f) {
+                        that._mFieldMeta[f.field_id] = {
+                            description : f.description            || "",
+                            // Raw values as stored on the field — mainGroup
+                            // gets replaced with a properly tree-derived value
+                            // once FieldGroups (pGroups) has loaded, see the
+                            // Promise.all callback below. A field's own
+                            // main_group_group_id is set once, when it's first
+                            // assigned to a sub-group, and doesn't follow that
+                            // sub-group if it's later re-parented under a
+                            // different main group — same reasoning as the
+                            // equivalent fix in CreateBp.controller.js.
+                            mainGroup   : f.main_group_group_id    || "",
+                            subGroup    : f.sub_group_group_id     || "",
+                            grid        : f.grid === true
+                        };
+                    });
+                }).catch(function () {});
+
+            // Grid column definitions (only meaningful for fields with grid=true
+            // above) — grouped by field_id so _buildFieldRow can render a
+            // read-only table with the right columns for a grid field.
+            var pGridColumns = fetch(sBase + "/GridColumns?$select=field_field_id,column_name,description,data_type,display_type&$top=5000",
+                { headers: { Accept: "application/json" } })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    that._mGridColumns = {};
+                    ((d && d.value) || []).forEach(function (gc) {
+                        var sFid = gc.field_field_id;
+                        if (!that._mGridColumns[sFid]) { that._mGridColumns[sFid] = []; }
+                        that._mGridColumns[sFid].push({
+                            column_name : gc.column_name,
+                            description : gc.description || gc.column_name,
+                            data_type   : gc.data_type,
+                            display_type: gc.display_type
+                        });
+                    });
+                }).catch(function () { that._mGridColumns = {}; });
+
+            // FieldGroup metadata — for tab/panel labels
+            var pGroups = fetch(sBase + "/FieldGroups?$select=group_id,description,parent_group_id_group_id,sequence,icon&$top=500",
+                { headers: { Accept: "application/json" } })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    that._mGroupMeta = {};
+                    ((d && d.value) || []).forEach(function (g) {
+                        that._mGroupMeta[g.group_id] = {
+                            description: g.description                || g.group_id,
+                            parentId   : g.parent_group_id_group_id  || null,
+                            sequence   : g.sequence                   || 99,
+                            icon       : g.icon                       || "sap-icon://form"
+                        };
+                    });
+                }).catch(function () { that._mGroupMeta = {}; });
+
+            Promise.all([pRoles, pFields, pGroups, pGridColumns]).then(function () {
+                // Now that _mGroupMeta (FieldGroups, with parent_group_id) is
+                // loaded, resolve each field's real main group by walking up
+                // from its sub_group to the current root — not by trusting
+                // the field's own possibly-stale main_group_group_id (see
+                // the note in pFields above). Falls back to the field's own
+                // stored value, or "GD" as a last resort, only when there's
+                // no sub-group to derive it from.
+                var fnFindRoot = function (sGroupId) {
+                    var sCurrent = sGroupId;
+                    var oSeen = {};
+                    while (that._mGroupMeta[sCurrent] && that._mGroupMeta[sCurrent].parentId && !oSeen[sCurrent]) {
+                        oSeen[sCurrent] = true;
+                        sCurrent = that._mGroupMeta[sCurrent].parentId;
+                    }
+                    return sCurrent;
+                };
+                Object.keys(that._mFieldMeta).forEach(function (sFieldId) {
+                    var oMeta = that._mFieldMeta[sFieldId];
+                    oMeta.mainGroup = oMeta.subGroup
+                        ? fnFindRoot(oMeta.subGroup)
+                        : (oMeta.mainGroup || "GD");
+                });
+                that._renderAll();
+            });
+        },
+
+        // ── Render role switcher + tabs ───────────────────────────────
+
+        _clearUI: function () {
+            var oBar   = this.byId("detailRoleBar");
+            var oTabs  = this.byId("detailRoleTabs");
+            var oMulti = this.byId("inDetailRoles");
+            var oRsBox = this.byId("releaseStrategyBox");
+            if (oBar)   { oBar.destroyItems(); }
+            if (oTabs)  { oTabs.destroyItems(); }
+            if (oMulti) { oMulti.removeAllTokens(); }
+            if (oRsBox) { oRsBox.destroyItems(); }
+            this._oViewModel.setProperty("/activeRole", "");
+            this._oViewModel.setProperty("/numberRange", "");
+        },
+
+        _renderAll: function () {
+            var oBar  = this.byId("detailRoleBar");
+            var oTabs = this.byId("detailRoleTabs");
+            if (!oBar || !oTabs) { return; }
+
+            oBar.destroyItems();
+            oTabs.destroyItems();
+
+            // Dedupe roles preserving order
+            var aRoleIds = [];
+            this._aRoles.forEach(function (r) {
+                if (aRoleIds.indexOf(r.role_id) < 0) { aRoleIds.push(r.role_id); }
+            });
+
+            if (!aRoleIds.length) {
+                oTabs.addItem(new IconTabFilter({
+                    key : "__empty",
+                    text: "No roles saved",
+                    content: [new Text({ text: "No field data found for this change request." })]
+                }));
+                return;
+            }
+
+            var oVm = this._oViewModel;
+
+            // Build SegmentedButton items for role switching (only if > 1 role)
+            aRoleIds.forEach(function (sRoleId) {
+                var sDesc = this._mRoleMeta[sRoleId] || sRoleId;
+                oBar.addItem(new SegmentedButtonItem({
+                    key : sRoleId,
+                    text: sRoleId + " \u2014 " + sDesc
+                }));
+            }.bind(this));
+
+            // Select first role
+            var sFirst = aRoleIds[0];
+            oVm.setProperty("/activeRole", sFirst);
+            if (aRoleIds.length > 1) { oBar.setSelectedKey(sFirst); }
+
+            // Build role token chips in the MultiInput header field
+            this._buildRoleTokens(aRoleIds);
+
+            // Build tab content for the first active role
+            this._buildRoleTabs(sFirst, oTabs);
+
+            // ── Attachments tab — CR-level, added once here (not per role switch)
+            // so it never duplicates when the user clicks a different role tab.
+            oTabs.addItem(this._buildAttachmentsTab());
+        },
+
+        // Build Token chips in the read-only MultiInput showing selected roles
+        _buildRoleTokens: function (aRoleIds) {
+            var oMulti = this.byId("inDetailRoles");
+            if (!oMulti) { return; }
+            oMulti.removeAllTokens();
+            var that = this;
+            aRoleIds.forEach(function (sRoleId) {
+                var sDesc = that._mRoleMeta[sRoleId] || "";
+                var sText = sRoleId + (sDesc ? " \u2014 " + sDesc : "");
+                oMulti.addToken(new sap.m.Token({ key: sRoleId, text: sText }));
+            });
+        },
+
+        _buildRoleTabs: function (sRoleId, oTabs) {
+            oTabs.destroyItems();
+
+            var that    = this;
+            var aAllFvs = this._aFieldVals.filter(function (fv) {
+                return fv.role_id === sRoleId;
+            });
+
+            if (!aAllFvs.length) {
+                oTabs.addItem(new IconTabFilter({
+                    key    : "__empty",
+                    text   : "No Values",
+                    icon   : "sap-icon://form",
+                    content: [new Text({
+                        text : "No field values were saved for this role.",
+                        class: "sapUiSmallMargin"
+                    })]
+                }));
+                return;
+            }
+
+            // ── Prerequisite tab ──────────────────────────────────────
+            var aPrereqs = aAllFvs.filter(function (fv) { return fv.prereq_indicator; });
+            if (aPrereqs.length) {
+                var oPrereqVBox = new VBox({ class: "sapUiSmallMarginTop" });
+                oPrereqVBox.addItem(new Text({
+                    text : "Required before proceeding (" + aPrereqs.length +
+                           " field" + (aPrereqs.length > 1 ? "s" : "") + ")",
+                    class: "sapUiSmallMargin"
+                }));
+                aPrereqs.forEach(function (fv) {
+                    oPrereqVBox.addItem(that._buildFieldRow(fv));
+                });
+                oTabs.addItem(new IconTabFilter({
+                    key    : "__prereqs",
+                    text   : "Prerequisites",
+                    icon   : "sap-icon://key",
+                    count  : String(aPrereqs.length),
+                    content: [oPrereqVBox]
+                }));
+            }
+
+            // ── Regular fields: resolve true main-group tab ───────────
+            //
+            // FieldMaster.main_group_group_id can point to EITHER:
+            //   (a) a true main group  (no parent)  → e.g. GD, AD, FIN
+            //   (b) a sub-group (has a parent)       → e.g. GD_NAME (parent=GD),
+            //                                          AD_LOC  (parent=AD)
+            //
+            // In case (b) the true tab is the parent, and main_group itself
+            // becomes the sub-group panel — matching exactly how Create BP's
+            // _renderTabsForActiveRole groups fields.
+            //
+            // Build: { trueMainGroupId → { subGroupId → [fv,...] } }
+            var mMainGroups = {};
+            var aMainOrder  = [];
+
+            var aRegular = aAllFvs.filter(function (fv) { return !fv.prereq_indicator; });
+
+            aRegular.forEach(function (fv) {
+                var oFm       = that._mFieldMeta[fv.field_id] || {};
+                var sMainRef  = oFm.mainGroup || "GD";   // default "GD" like CreateBP does
+
+                // Resolve: if sMainRef itself has a parent → sMainRef is a sub-group,
+                // parent is the real tab. Otherwise sMainRef IS the tab.
+                var oMainMeta = that._mGroupMeta[sMainRef]   || {};
+                var sTrueTab  = oMainMeta.parentId ? oMainMeta.parentId : sMainRef;
+                var sSubPanel = sMainRef;  // panel inside the tab
+
+                if (!mMainGroups[sTrueTab]) {
+                    mMainGroups[sTrueTab] = {};
+                    aMainOrder.push(sTrueTab);
+                }
+                if (!mMainGroups[sTrueTab][sSubPanel]) {
+                    mMainGroups[sTrueTab][sSubPanel] = [];
+                }
+                mMainGroups[sTrueTab][sSubPanel].push(fv);
+            });
+
+            // Sort tabs by the true main group's sequence
+            aMainOrder.sort(function (a, b) {
+                var seqA = (that._mGroupMeta[a] && that._mGroupMeta[a].sequence) || 99;
+                var seqB = (that._mGroupMeta[b] && that._mGroupMeta[b].sequence) || 99;
+                return seqA - seqB;
+            });
+
+            aMainOrder.forEach(function (sTrueTab) {
+                var oTabMeta  = that._mGroupMeta[sTrueTab] || {};
+                var sTabLabel = oTabMeta.description || sTrueTab.replace(/_/g, " ");
+                var sTabIcon  = oTabMeta.icon        || "sap-icon://form";
+                var mSubs     = mMainGroups[sTrueTab];
+
+                // Count total fields in this tab
+                var iTotal = 0;
+                Object.keys(mSubs).forEach(function (k) { iTotal += mSubs[k].length; });
+
+                var oTabVBox = new VBox({ class: "sapUiSmallMarginTop" });
+
+                // Sort sub-group panels by their own sequence
+                var aSubKeys = Object.keys(mSubs).sort(function (a, b) {
+                    var seqA = (that._mGroupMeta[a] && that._mGroupMeta[a].sequence) || 99;
+                    var seqB = (that._mGroupMeta[b] && that._mGroupMeta[b].sequence) || 99;
+                    return seqA - seqB;
+                });
+
+                aSubKeys.forEach(function (sSubKey) {
+                    var aFvsInSub = mSubs[sSubKey];
+                    var oSubMeta  = that._mGroupMeta[sSubKey] || {};
+                    var sSubLabel = oSubMeta.description || sSubKey.replace(/_/g, " ");
+
+                    // If sub-group = tab (field pointed directly at main group),
+                    // skip the extra panel and just render fields directly
+                    var bDirectInTab = (sSubKey === sTrueTab);
+
+                    if (bDirectInTab) {
+                        var oDirectVBox = new VBox({
+                            class: "sapUiSmallMarginBeginEnd sapUiSmallMarginTopBottom"
+                        });
+                        aFvsInSub.forEach(function (fv) {
+                            oDirectVBox.addItem(that._buildFieldRow(fv));
+                        });
+                        oTabVBox.addItem(oDirectVBox);
+                    } else {
+                        // Collapsible panel: "Name Data (2)" — matching Create BP's sub-group panel
+                        var oPanel = new Panel({
+                            headerText : sSubLabel + " (" + aFvsInSub.length + ")",
+                            expandable : true,
+                            expanded   : true,
+                            class      : "sapUiSmallMarginBottom"
+                        });
+                        var oPanelVBox = new VBox({
+                            class: "sapUiSmallMarginBeginEnd sapUiSmallMarginTopBottom"
+                        });
+                        aFvsInSub.forEach(function (fv) {
+                            oPanelVBox.addItem(that._buildFieldRow(fv));
+                        });
+                        oPanel.addContent(oPanelVBox);
+                        oTabVBox.addItem(oPanel);
+                    }
+                });
+
+                oTabs.addItem(new IconTabFilter({
+                    key    : sTrueTab,
+                    text   : sTabLabel,
+                    icon   : sTabIcon,
+                    count  : String(iTotal),
+                    content: [oTabVBox]
+                }));
+            });
+
+            // Select first tab
+            var aItems = oTabs.getItems();
+            if (aItems.length) { oTabs.setSelectedKey(aItems[0].getKey()); }
+        },
+
+        // Build a read-only Attachments tab showing uploaded files
+        _buildAttachmentsTab: function () {
+            var aAtts = this._aAttachments || [];
+
+            var oVBox = new VBox({ class: "sapUiSmallMargin" });
+
+            oVBox.addItem(new Text({
+                text : "Supporting documents attached to this change request.",
+                class: "sapUiSmallMarginBottom"
+            }));
+
+            if (!aAtts.length) {
+                oVBox.addItem(new Text({
+                    text : "No attachments.",
+                    class: "sapUiTinyMarginTop"
+                }));
+            } else {
+                // Build a simple table matching the Create BP Attachments layout
+                var oTable = new Table({
+                    alternateRowColors: true,
+                    columns: [
+                        new Column({ header: new Label({ text: "File Name",    design: "Bold" }) }),
+                        new Column({ header: new Label({ text: "Size",         design: "Bold" }), hAlign: "End", width: "7rem" }),
+                        new Column({ header: new Label({ text: "Type",         design: "Bold" }), width: "8rem"  }),
+                        new Column({ header: new Label({ text: "Uploaded By",  design: "Bold" }), width: "9rem"  }),
+                        new Column({ header: new Label({ text: "Uploaded On",  design: "Bold" }), width: "12rem" })
+                    ]
+                });
+
+                aAtts.forEach(function (a) {
+                    // Format file size the same way CreateBP does
+                    var sSize;
+                    if (a.size_bytes < 1024)             { sSize = a.size_bytes + " B"; }
+                    else if (a.size_bytes < 1024 * 1024) { sSize = Math.round(a.size_bytes / 1024) + " KB"; }
+                    else                                  { sSize = (a.size_bytes / (1024 * 1024)).toFixed(1) + " MB"; }
+
+                    oTable.addItem(new ColumnListItem({
+                        cells: [
+                            new ObjectIdentifier({ title: a.file_name }),
+                            new Text({ text: sSize }),
+                            new Text({ text: a.mime_type }),
+                            new Text({ text: a.uploaded_by }),
+                            new Text({ text: a.uploaded_at })
+                        ]
+                    }));
+                });
+
+                oVBox.addItem(oTable);
+            }
+
+            return new IconTabFilter({
+                key    : "__attachments",
+                text   : "Attachments",
+                icon   : "sap-icon://attachment",
+                count  : aAtts.length ? String(aAtts.length) : "",
+                content: [oVBox]
+            });
+        },
+
+        // Build one read-only field row: Label (Description*) + disabled Input (value).
+        // Grid-type fields (FieldMaster.grid = true) instead render a
+        // read-only table — one row per fv.gridRows entry (reconstructed
+        // from CRFieldValue's column_name/counter, see _mGridRows above),
+        // one column per GridColumn definition in _mGridColumns.
+        _buildFieldRow: function (fv) {
+            var oFm = this._mFieldMeta[fv.field_id] || {};
+
+            if (oFm.grid) {
+                return this._buildGridFieldRow(fv, oFm);
+            }
+
+            var bRequired = (fv.field_status === "REQUIRED");
+            // Show the human-readable description (e.g. "Sales Division")
+            // rather than the raw technical field_id (e.g. "SPART") — fall
+            // back to the technical id only if metadata failed to load for
+            // this field, so the row never renders blank.
+            var sLabel    = (oFm.description || fv.field_id) + ":";
+
+            return new HBox({
+                alignItems: "Center",
+                class     : "sapUiTinyMarginBottom",
+                items     : [
+                    new Label({
+                        text    : sLabel,
+                        required: bRequired,
+                        tooltip : fv.field_id || "",
+                        width   : "14rem",
+                        class   : "sapUiTinyMarginEnd"
+                    }),
+                    new Input({
+                        value       : fv.new_value || "",
+                        editable    : false,
+                        width       : "22rem",
+                        placeholder : fv.new_value ? "" : "(not filled)",
+                        valueState  : (bRequired && !fv.new_value) ? "Warning" : "None"
+                    })
+                ]
+            });
+        },
+
+        _buildGridFieldRow: function (fv, oFm) {
+            var aCols = this._mGridColumns[fv.field_id] || [];
+            var aRows = fv.gridRows || [];
+
+            var oTable = new Table({
+                noDataText: "(no rows saved)",
+                growing   : false,
+                fixedLayout: false,
+                columns: aCols.map(function (gc) {
+                    return new Column({ header: new Label({ text: gc.description, design: "Bold" }) });
+                }),
+                items: aRows.map(function (oRow) {
+                    return new ColumnListItem({
+                        cells: aCols.map(function (gc) {
+                            return new Text({ text: oRow[gc.column_name] || "\u2014" });
+                        })
+                    });
+                })
+            });
+
+            var oLabel = new Label({
+                text : (oFm.description || fv.field_id) + ":",
+                design: "Bold",
+                required: fv.field_status === "REQUIRED"
+            });
+
+            return new VBox({
+                class: "sapUiTinyMarginBottom",
+                items: [oLabel, oTable]
+            });
+        },
+
+        // ── Release / Approval Strategy tab ─────────────────────────────
+        //
+        // Fetches the release codes, assigned approvers and per-step
+        // progress that were determined for this CR — the same data
+        // ApprovalDetail.controller.js's release progress strip is built
+        // from — so the requester can see who's reviewing their request
+        // and where it stands, instead of that being invisible to them.
+        // Runs independently of _loadMeta/_renderAll (which only concern
+        // the "Request Details" tab's field-group tabs).
+
+        _fmtDate: function (v) {
+            return v ? new Date(v).toLocaleString() : "";
+        },
+
+        _loadReleaseStrategy: function (sBase, sCrId, oData) {
+            var that   = this;
+            var sCrKey = "'" + encodeURIComponent(sCrId) + "'";
+
+            function fetchJson(sUrl) {
+                return fetch(sUrl, { headers: { Accept: "application/json" } })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) { return (d && d.value !== undefined) ? d.value : d; })
+                    .catch(function () { return []; });
+            }
+
+            this._sStrategyId = oData.strategy_strategy_id || null;
+
+            var pStrategyMeta = this._sStrategyId
+                ? fetchJson(sBase + "/ReleaseStrategies('" + encodeURIComponent(this._sStrategyId) + "')?$select=strategy_id,description,priority")
+                : Promise.resolve(null);
+
+            var pCrStrategy = fetchJson(
+                sBase + "/CRReleaseStrategies?$filter=cr_cr_id eq " + sCrKey +
+                "&$select=cr_cr_id,determined_at,overall_status,current_step,completed_at&$top=1"
+            );
+
+            var pSteps = fetchJson(
+                sBase + "/CRReleaseSteps?$filter=cr_cr_cr_id eq " + sCrKey +
+                "&$select=cr_cr_cr_id,step_number,sequence_within_step,parallel," +
+                "release_code_release_code_id,assigned_to,status,due_at,acted_by,acted_at,comment" +
+                "&$orderby=step_number,sequence_within_step&$top=200"
+            );
+
+            var pDecisions = fetchJson(
+                sBase + "/CRApprovalDecisions?$filter=cr_cr_id eq " + sCrKey +
+                "&$orderby=acted_at&$top=500"
+            );
+
+            var pReleaseCodes = fetchJson(
+                sBase + "/ReleaseCodes?$select=release_code_id,description,sla_hours&$top=200"
+            );
+
+            Promise.all([pStrategyMeta, pCrStrategy, pSteps, pDecisions, pReleaseCodes])
+            .then(function (aRes) {
+                var oStrategyMeta = aRes[0];
+                var aCrStrategy   = aRes[1] || [];
+                var aSteps        = aRes[2] || [];
+                var aDecisions    = aRes[3] || [];
+                var aReleaseCodes = aRes[4] || [];
+
+                that._oStrategyMeta = (oStrategyMeta && !oStrategyMeta.error) ? oStrategyMeta : null;
+                that._oCrStrategy   = aCrStrategy[0] || null;
+                that._aRsSteps      = aSteps;
+                that._aRsDecisions  = aDecisions;
+
+                that._mReleaseCodeMeta = {};
+                aReleaseCodes.forEach(function (c) {
+                    that._mReleaseCodeMeta[c.release_code_id] = {
+                        description: c.description || "",
+                        sla_hours  : c.sla_hours
+                    };
+                });
+
+                var aCodesUsed = [];
+                aSteps.forEach(function (s) {
+                    var sCode = s.release_code_release_code_id;
+                    if (sCode && aCodesUsed.indexOf(sCode) < 0) { aCodesUsed.push(sCode); }
+                });
+
+                if (!aCodesUsed.length) {
+                    that._mCodeApprovers = {};
+                    that._buildReleaseStrategyTab();
+                    return;
+                }
+
+                var sFilter = "(" + aCodesUsed.map(function (c) {
+                    return "release_code_release_code_id eq '" + encodeURIComponent(c) + "'";
+                }).join(" or ") + ") and active eq true";
+
+                fetchJson(
+                    sBase + "/ReleaseCodeUsers?$filter=" + encodeURIComponent(sFilter) +
+                    "&$select=release_code_release_code_id,user_id,assignment_type&$top=200"
+                ).then(function (aUsers) {
+                    that._mCodeApprovers = {};
+                    (aUsers || []).forEach(function (u) {
+                        var sCode = u.release_code_release_code_id;
+                        if (!that._mCodeApprovers[sCode]) { that._mCodeApprovers[sCode] = []; }
+                        that._mCodeApprovers[sCode].push({
+                            user_id: u.user_id,
+                            assignment_type: u.assignment_type
+                        });
+                    });
+                    that._buildReleaseStrategyTab();
+                });
+            });
+        },
+
+        _buildReleaseStrategyTab: function () {
+            var oBox = this.byId("releaseStrategyBox");
+            if (!oBox) { return; }
+            oBox.destroyItems();
+
+            var that     = this;
+            var sStatus  = this._oViewModel.getProperty("/status");
+            var aSteps   = this._aRsSteps || [];
+
+            if (!aSteps.length) {
+                oBox.addItem(new MessageStrip({
+                    type: "Information",
+                    showIcon: true,
+                    class: "sapUiSmallMarginBottom",
+                    text: sStatus === "DRAFT"
+                        ? "This request hasn't been submitted yet — the release strategy, release codes and approvers are determined automatically when you submit it."
+                        : "No release strategy steps were found for this request."
+                }));
+                return;
+            }
+
+            var oCrStrategy = this._oCrStrategy || {};
+
+            // NOTE on data source: CRReleaseStrategy.overall_status and
+            // .current_step are written ONCE at submit time
+            // (createReleaseStrategySnapshot: 'IN_PROGRESS' / 1) and are
+            // never updated again as stages actually progress — confirmed
+            // in srv/mdm-service.js's _applyStepDecision, which advances
+            // CRReleaseStep.status and CRHeader.status but never touches
+            // CRReleaseStrategy. Trusting those two fields here is what
+            // made an already-approved stage's next stage keep showing
+            // "Not yet reached". CRHeader.status (this._oViewModel's
+            // "/status") and each CRReleaseStep's own .status ARE kept
+            // correct throughout, so both the overall badge/terminal box
+            // and the "which stage is current" logic below are derived
+            // from those instead — the same live data ApprovalHelper.js
+            // and My Approvals already rely on.
+            var sHeaderStatus = this._oViewModel.getProperty("/status");
+
+            // ── 1. Release Strategy — shown first, on its own, so it's
+            //      clear which strategy applies before anything about the
+            //      approvers who are part of it ─────────────────────────
+            var sStrategyTitle = this._sStrategyId
+                ? "Strategy " + this._sStrategyId +
+                  (this._oStrategyMeta && this._oStrategyMeta.description ? " — " + this._oStrategyMeta.description : "")
+                : "—";
+            var mHeaderStatusState = {
+                DRAFT: "None", IN_APPROVAL: "Warning", APPROVED: "Success", POSTED: "Success",
+                REJECTED: "Error", SENT_BACK: "Warning", CANCELLED: "None"
+            };
+
+            oBox.addItem(new Panel({
+                class: "sapUiSmallMarginBottom",
+                content: [
+                    new HBox({
+                        alignItems: "Center",
+                        class: "sapUiSmallMargin",
+                        items: [
+                            new Icon({ src: "sap-icon://workflow-tasks", size: "1.5rem", class: "sapUiSmallMarginEnd", color: "Default" }),
+                            new VBox({ items: [
+                                new Title({ text: sStrategyTitle, level: "H5" }),
+                                new ObjectStatus({
+                                    text : sHeaderStatus || "—",
+                                    state: mHeaderStatusState[sHeaderStatus] || "None",
+                                    class: "sapUiTinyMarginTop"
+                                }),
+                                new Text({
+                                    text : oCrStrategy.determined_at ? "Determined " + that._fmtDate(oCrStrategy.determined_at) : "",
+                                    class: "sapMDMFlowArrowLabel sapUiTinyMarginTop"
+                                })
+                            ] })
+                        ]
+                    })
+                ]
+            }));
+
+            // ── 2. Approval flow — the relevant approvers, grouped into
+            //      stages exactly the way the Release Strategy admin
+            //      screen visualizes them, but showing THIS request's
+            //      actual approver(s) and live status per step. "Current"
+            //      stage = the first one that isn't fully APPROVED yet —
+            //      computed here rather than trusted from current_step
+            //      (see the note above) ──────────────────────────────
+            oBox.addItem(new Title({ text: "Approval Flow", level: "H4", class: "sapUiTinyMarginBottom" }));
+
+            var aStages = this._computeRsStages(aSteps);
+            var iCurrentStageIdx = this._computeCurrentStageIndex(aStages);
+            var oFlow = new HBox({ alignItems: "Center", wrap: "Wrap", class: "sapUiSmallMarginBottom" });
+
+            aStages.forEach(function (aStageSteps, idx) {
+                if (idx > 0) { oFlow.addItem(that._buildRsFlowArrow("Then")); }
+                oFlow.addItem(that._buildRsStageBox(aStageSteps, idx === iCurrentStageIdx));
+            });
+
+            if (sHeaderStatus === "APPROVED" || sHeaderStatus === "POSTED") {
+                oFlow.addItem(that._buildRsFlowArrow("All done"));
+                oFlow.addItem(that._buildRsTerminalBox("Approved", "sap-icon://sys-enter-2", "Positive", "sapMDMFlowApproved"));
+            } else if (sHeaderStatus === "REJECTED") {
+                oFlow.addItem(that._buildRsFlowArrow("Result"));
+                oFlow.addItem(that._buildRsTerminalBox("Rejected", "sap-icon://sys-cancel-2", "Negative", "sapMDMFlowRejected"));
+            } else if (sHeaderStatus === "SENT_BACK") {
+                oFlow.addItem(that._buildRsFlowArrow("Result"));
+                oFlow.addItem(that._buildRsTerminalBox("Sent Back", "sap-icon://redo", "Critical", "sapMDMFlowSentBack"));
+            } else if (sHeaderStatus === "CANCELLED") {
+                oFlow.addItem(that._buildRsFlowArrow("Result"));
+                oFlow.addItem(that._buildRsTerminalBox("Cancelled", "sap-icon://sys-cancel-2", "Neutral", "sapMDMFlowCancelled"));
+            }
+
+            oBox.addItem(oFlow);
+
+            // ── 3. Decision history ──────────────────────────────────
+            oBox.addItem(new Title({ text: "Decision History", level: "H4", class: "sapUiTinyMarginTop sapUiTinyMarginBottom" }));
+
+            var mActionWord = { APPROVE: "Approved", REJECT: "Rejected", SEND_BACK: "Sent back" };
+            var aEvents = (this._aRsDecisions || []).map(function (d) {
+                return {
+                    ts: d.acted_at,
+                    title: (mActionWord[d.action] || d.action) +
+                        (d.release_code_release_code_id ? " — Code " + d.release_code_release_code_id : ""),
+                    meta: (d.acted_by || "—") + " · " + that._fmtDate(d.acted_at) +
+                        (d.comment ? " · “" + d.comment + "”" : "")
+                };
+            });
+            aEvents.sort(function (a, b) { return new Date(b.ts) - new Date(a.ts); });
+
+            if (!aEvents.length) {
+                oBox.addItem(new Text({ text: "No approval decisions recorded yet." }));
+            } else {
+                aEvents.forEach(function (ev) {
+                    oBox.addItem(new HBox({
+                        class: "sapUiTinyMarginBottom",
+                        items: [
+                            new Icon({ src: "sap-icon://record", size: "0.7rem", class: "sapUiTinyMarginTop sapUiTinyMarginEnd" }),
+                            new VBox({ items: [
+                                new Text({ text: ev.title, class: "sapMDMFlowCodeName" }),
+                                new Text({ text: ev.meta })
+                            ] })
+                        ]
+                    }));
+                });
+            }
+        },
+
+        // Groups steps into approval "stages" the same way
+        // ReleaseStrategyDetail.controller.js's _computeApprovalStages
+        // does for the strategy's own definition: a step marked
+        // parallel=true joins the previous step's stage instead of
+        // starting a new one. Mirrors what the backend's stage logic
+        // (_computeApprovalStages / ApprovalHelper.currentStageSteps)
+        // actually groups by, so this reads the same way the approval
+        // engine behaves.
+        _computeRsStages: function (aSteps) {
+            var aOrdered = aSteps.slice().sort(function (a, b) {
+                return a.step_number - b.step_number || a.sequence_within_step - b.sequence_within_step;
+            });
+            var aStages = [];
+            aOrdered.forEach(function (step) {
+                if (step.parallel && aStages.length > 0) {
+                    aStages[aStages.length - 1].push(step);
+                } else {
+                    aStages.push([step]);
+                }
+            });
+            return aStages;
+        },
+
+        // The "current" stage is the first one (in order) that isn't yet
+        // fully APPROVED — same definition ApprovalHelper.js's
+        // _currentStageSteps and the backend's _applyStepDecision use to
+        // decide whether to trigger the next stage. Returns aStages.length
+        // (an out-of-range index, matching nothing) once every stage is
+        // fully approved.
+        _computeCurrentStageIndex: function (aStages) {
+            for (var i = 0; i < aStages.length; i++) {
+                var bFullyApproved = aStages[i].every(function (s) { return s.status === "APPROVED"; });
+                if (!bFullyApproved) { return i; }
+            }
+            return aStages.length;
+        },
+
+        _buildRsFlowArrow: function (sLabel) {
+            return new VBox({
+                alignItems: "Center",
+                justifyContent: "Center",
+                items: [
+                    new Icon({ src: "sap-icon://arrow-right", color: "Neutral", size: "1.2rem" }),
+                    new Text({ text: sLabel }).addStyleClass("sapMDMFlowArrowLabel")
+                ]
+            }).addStyleClass("sapUiSmallMarginBeginEnd");
+        },
+
+        // One step's card content — an Avatar badge (step number) plus the
+        // release code, its description, WHO is assigned to approve it,
+        // and a live status badge. Used both as a standalone
+        // sapMDMFlowStageSingle box and, for a parallel stage, once per
+        // code inside a sapMDMFlowStageParallel wrapper (see
+        // _buildRsStageBox) — same reuse pattern as
+        // ReleaseStrategyDetail.controller.js's _buildCodeCard.
+        _buildRsStepCardContent: function (step, bIsCurrentStage) {
+            var oCodeMeta = this._mReleaseCodeMeta[step.release_code_release_code_id] || {};
+            var sDesc = oCodeMeta.description || "";
+
+            var aApprovers = (this._mCodeApprovers && this._mCodeApprovers[step.release_code_release_code_id]) || [];
+            var sApproverNames = aApprovers.length
+                ? aApprovers.map(function (a) {
+                    return a.user_id + (a.assignment_type === "GROUP" ? " (group)" : "");
+                }).join(", ")
+                : (step.assigned_to || "Not yet assigned");
+
+            var mState = { APPROVED: "Success", REJECTED: "Error", SENT_BACK: "Warning" };
+            var sState = mState[step.status] || (bIsCurrentStage ? "Warning" : "None");
+
+            var sStatusText;
+            if (step.status === "APPROVED") {
+                sStatusText = "Approved by " + (step.acted_by || "—") + " · " + this._fmtDate(step.acted_at);
+            } else if (step.status === "REJECTED") {
+                sStatusText = "Rejected by " + (step.acted_by || "—") + " · " + this._fmtDate(step.acted_at);
+            } else if (step.status === "SENT_BACK") {
+                sStatusText = "Sent back by " + (step.acted_by || "—") + " · " + this._fmtDate(step.acted_at);
+            } else if (bIsCurrentStage) {
+                sStatusText = "Awaiting approval" + (step.due_at ? " · Due " + this._fmtDate(step.due_at) : "");
+            } else {
+                sStatusText = "Not yet reached";
+            }
+
+            return new HBox({
+                alignItems: "Center",
+                items: [
+                    new Avatar({
+                        displaySize: "XS",
+                        initials: String(step.step_number).padStart(2, "0"),
+                        backgroundColor: "Accent6"
+                    }).addStyleClass("sapUiTinyMarginEnd"),
+                    new VBox({
+                        items: [
+                            new Text({ text: step.release_code_release_code_id + (sDesc ? " — " + sDesc : "") })
+                                .addStyleClass("sapMDMFlowCodeName"),
+                            new Text({ text: "Approver: " + sApproverNames }).addStyleClass("sapMDMFlowArrowLabel"),
+                            new ObjectStatus({ text: sStatusText, state: sState, class: "sapUiTinyMarginTop" })
+                        ]
+                    })
+                ]
+            });
+        },
+
+        _buildRsStageBox: function (aStageSteps, bIsCurrentStage) {
+            var that = this;
+
+            if (aStageSteps.length === 1) {
+                var step = aStageSteps[0];
+                return this._buildRsStepCardContent(step, bIsCurrentStage)
+                    .addStyleClass("sapMDMFlowStageSingle");
+            }
+
+            var aItems = [
+                new Text({ text: "Parallel — Run Together" }).addStyleClass("sapMDMFlowStageParallelLabel")
+            ];
+            aStageSteps.forEach(function (step) {
+                aItems.push(
+                    that._buildRsStepCardContent(step, bIsCurrentStage)
+                        .addStyleClass("sapMDMFlowCodeCard")
+                );
+            });
+            return new VBox({ items: aItems }).addStyleClass("sapMDMFlowStageParallel");
+        },
+
+        _buildRsTerminalBox: function (sText, sIcon, sColor, sStyleClass) {
+            return new HBox({
+                alignItems: "Center",
+                items: [
+                    new Icon({ src: sIcon, color: sColor }).addStyleClass("sapUiTinyMarginEnd"),
+                    new Text({ text: sText }).addStyleClass("sapMDMFlowCodeName")
+                ]
+            }).addStyleClass(sStyleClass);
+        },
+
+        // ── Role switcher ─────────────────────────────────────────────
+
+        onDetailRoleChange: function (oEvent) {
+            var sKey  = oEvent.getParameter("key");
+            this._oViewModel.setProperty("/activeRole", sKey);
+
+            var oTabs = this.byId("detailRoleTabs");
+
+            // NOTE: oTabs.destroyItems() destroys every child control in the
+            // aggregation (including their content), so a previously-held
+            // reference to the Attachments tab becomes a destroyed control —
+            // re-adding it afterwards silently fails to render. Instead,
+            // always rebuild the Attachments tab fresh, same as CreateBp's
+            // _renderTabsForActiveRole does.
+            oTabs.destroyItems();
+
+            // Rebuild field tabs for the newly active role
+            this._buildRoleTabs(sKey, oTabs);
+
+            // Re-add a freshly built Attachments tab at the end
+            oTabs.addItem(this._buildAttachmentsTab());
+        },
+
+        onDetailTabChange: function () { /* tabs are static per role */ },
+
+        // ── Actions ───────────────────────────────────────────────────
+
+        onEditDraft: function () {
+            var sCrId  = this._oViewModel.getProperty("/crId");
+            var sStatus = this._oViewModel.getProperty("/status");
+            if (sStatus !== "DRAFT") {
+                MessageBox.warning("Only DRAFT requests can be edited.");
+                return;
+            }
+            this.getOwnerComponent().getRouter().navTo("createBPEdit", {
+                crId: encodeURIComponent(sCrId)
+            });
+        },
+
+        onSubmit: function () {
+            var sCrId = this._oViewModel.getProperty("/crId");
+            MessageBox.confirm("Submit change request " + sCrId + " for approval?", {
+                title   : "Submit",
+                actions : [MessageBox.Action.YES, MessageBox.Action.NO],
+                onClose : function (sAction) {
+                    if (sAction === MessageBox.Action.YES) {
+                        this._submitCR(sCrId);
+                    }
+                }.bind(this)
+            });
+        },
+
+        _submitCR: function (sCrId) {
+            var oVm    = this._oViewModel;
+            var oModel = this.getOwnerComponent().getModel();
+            var sUrl   = oModel.getServiceUrl().replace(/\/$/, "") + "/submitChangeRequest";
+
+            oVm.setProperty("/busy", true);
+
+            fetch(sUrl, {
+                method : "POST",
+                headers: { "Content-Type": "application/json", "Accept": "application/json" },
+                body   : JSON.stringify({ cr_id: sCrId })
+            })
+            .then(function (r) {
+                if (!r.ok) {
+                    return r.json().then(function (e) {
+                        throw new Error((e.error && e.error.message) || "HTTP " + r.status);
+                    });
+                }
+                return r.json();
+            })
+            .then(function (oData) {
+                // submitChangeRequest returns { success, message, strategy_id }
+                var oResult = (oData && oData.value) ? oData.value : oData;
+                if (oResult && oResult.success === false) {
+                    throw new Error(oResult.message || "Submit failed");
+                }
+                MessageToast.show((oResult && oResult.message) ||
+                    (sCrId + " submitted for approval."));
+                // Reload so status, release strategy and approval progress
+                // reflect what submitChangeRequest just wrote (IN_APPROVAL,
+                // strategy snapshot, first stage triggered).
+                this._loadCR(sCrId);
+            }.bind(this))
+            .catch(function (oErr) {
+                oVm.setProperty("/busy", false);
+                MessageBox.error("Could not submit request: " + oErr.message);
+            });
+        },
+
+        onCancelRequest: function () {
+            var oVm    = this._oViewModel;
+            var sCrId  = oVm.getProperty("/crId");
+            var sStatus = oVm.getProperty("/status");
+
+            var sTitle, sMsg;
+            if (sStatus === "DRAFT") {
+                sTitle = "Delete Draft";
+                sMsg   = "Permanently delete draft request " + sCrId + "?\n\nThis cannot be undone.";
+            } else {
+                sTitle = "Cancel Request";
+                sMsg   = "Cancel request " + sCrId + "?\n\nThe request will be marked as Cancelled.";
+            }
+
+            MessageBox.confirm(sMsg, {
+                title           : sTitle,
+                icon            : MessageBox.Icon.WARNING,
+                actions         : [MessageBox.Action.YES, MessageBox.Action.NO],
+                emphasizedAction: MessageBox.Action.NO,
+                onClose         : function (sAction) {
+                    if (sAction !== MessageBox.Action.YES) { return; }
+                    this._deleteOrCancelCR(sCrId);
+                }.bind(this)
+            });
+        },
+
+        _deleteOrCancelCR: function (sCrId) {
+            var oVm    = this._oViewModel;
+            var oModel = this.getOwnerComponent().getModel();
+            var sUrl   = oModel.getServiceUrl().replace(/\/$/, "") + "/DeleteChangeRequest";
+
+            oVm.setProperty("/busy", true);
+
+            fetch(sUrl, {
+                method : "POST",
+                headers: { "Content-Type": "application/json", "Accept": "application/json" },
+                body   : JSON.stringify({ cr_id: sCrId, reason: "" })
+            })
+            .then(function (r) {
+                if (!r.ok) {
+                    return r.json().then(function (e) {
+                        throw new Error((e.error && e.error.message) || "HTTP " + r.status);
+                    });
+                }
+                return r.json();
+            })
+            .then(function (oData) {
+                oVm.setProperty("/busy", false);
+                MessageToast.show(oData.value && oData.value.message
+                    ? oData.value.message : sCrId + " removed successfully.");
+                this.getOwnerComponent().getRouter().navTo("myRequests");
+            }.bind(this))
+            .catch(function (oErr) {
+                oVm.setProperty("/busy", false);
+                MessageBox.error("Could not remove request: " + oErr.message);
+            }.bind(this));
+        },
+
+        onNavHome: function () {
+            this.getOwnerComponent().getRouter().navTo("home", {}, true);
+        },
+
+        onNavList: function () {
+            this.getOwnerComponent().getRouter().navTo("myRequests");
+        },
+
+        // Back button in the standard customHeader — same target as the
+        // former "My Requests" breadcrumb link, kept consistent with the
+        // onNavBack pattern used across the other detail screens.
+        onNavBack: function () {
+            this.getOwnerComponent().getRouter().navTo("myRequests");
+        }
+    });
+});

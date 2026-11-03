@@ -1,0 +1,337 @@
+{
+    "_version": "1.58.0",
+    "sap.app": {
+        "id": "mdm.portal",
+        "type": "application",
+        "title": "MDM Portal",
+        "dataSources": {
+            "mainService": {
+                "uri": "/odata/v4/mdmportal/",
+                "type": "OData",
+                "settings": {
+                    "odataVersion": "4.0"
+                }
+            }
+        }
+    },
+    "sap.ui": {
+        "technology": "UI5",
+        "deviceTypes": {
+            "desktop": true,
+            "tablet": true,
+            "phone": true
+        },
+        "supportedThemes": [
+            "sap_horizon",
+            "sap_horizon_dark",
+            "sap_fiori_3"
+        ]
+    },
+    "sap.ui5": {
+        "contentDensities": {
+            "compact": true,
+            "cozy": false
+        },
+        "resources": {
+            "css": [
+                {
+                    "uri": "css/Sidebar.css"
+                }
+            ]
+        },
+        "dependencies": {
+            "minUI5Version": "1.120.0",
+            "libs": {
+                "sap.m": {},
+                "sap.f": {},
+                "sap.tnt": {},
+                "sap.ui.core": {},
+                "sap.ui.layout": {},
+                "sap.ui.unified": {}
+            }
+        },
+        "rootView": {
+            "viewName": "mdm.portal.view.App",
+            "type": "XML",
+            "id": "app"
+        },
+        "models": {
+            "": {
+                "dataSource": "mainService",
+                "preload": true,
+                "settings": {
+                    "synchronizationMode": "None",
+                    "operationMode": "Server",
+                    "autoExpandSelect": true,
+                    "groupId": "$auto"
+                }
+            },
+            "i18n": {
+                "type": "sap.ui.model.resource.ResourceModel",
+                "settings": {
+                    "bundleName": "mdm.portal.i18n.i18n",
+                    "supportedLocales": [
+                        "",
+                        "en"
+                    ],
+                    "fallbackLocale": ""
+                }
+            }
+        },
+        "routing": {
+            "config": {
+                "routerClass": "sap.m.routing.Router",
+                "viewType": "XML",
+                "viewPath": "mdm.portal.view",
+                "controlId": "appPages",
+                "controlAggregation": "pages",
+                "bypassed": {
+                    "target": "home"
+                }
+            },
+            "routes": [
+                {
+                    "name": "home",
+                    "pattern": "",
+                    "target": "home"
+                },
+                {
+                    "name": "fieldMaster",
+                    "pattern": "fieldmaster",
+                    "target": "fieldMaster"
+                },
+                {
+                    "name": "fieldMasterDetail",
+                    "pattern": "fieldmaster/{fieldId}",
+                    "target": "fieldMasterDetail"
+                },
+                {
+                    "name": "fieldGroups",
+                    "pattern": "fieldgroups",
+                    "target": "fieldGroups"
+                },
+                {
+                    "name": "fieldGroupDetail",
+                    "pattern": "fieldgroups/{groupId}",
+                    "target": "fieldGroupDetail"
+                },
+                {
+                    "name": "valueTables",
+                    "pattern": "valuetables",
+                    "target": "valueTables"
+                },
+                {
+                    "name": "valueTableDetail",
+                    "pattern": "valuetables/{valueTableId}",
+                    "target": "valueTableDetail"
+                },
+                {
+                    "name": "validationRules",
+                    "pattern": "validationrules",
+                    "target": "validationRules"
+                },
+                {
+                    "name": "validationRuleDetail",
+                    "pattern": "validationrules/{validationId}",
+                    "target": "validationRuleDetail"
+                },
+                {
+                    "name": "bpRoles",
+                    "pattern": "bproles",
+                    "target": "bpRoles"
+                },
+                {
+                    "name": "bpRoleDetail",
+                    "pattern": "bproles/{roleId}",
+                    "target": "bpRoleDetail"
+                },
+                {
+                    "name": "bpCategories",
+                    "pattern": "bpcategories",
+                    "target": "bpCategories"
+                },
+                {
+                    "name": "bpCategoryDetail",
+                    "pattern": "bpcategories/{categoryId}",
+                    "target": "bpCategoryDetail"
+                },
+                {
+                    "name": "accountGroups",
+                    "pattern": "accountgroups",
+                    "target": "accountGroups"
+                },
+                {
+                    "name": "accountGroupDetail",
+                    "pattern": "accountgroups/{accountGroupId}",
+                    "target": "accountGroupDetail"
+                },
+                {
+                    "name": "createBP",
+                    "pattern": "createbp",
+                    "target": "createBP"
+                },
+                {
+                    "name": "createBPEdit",
+                    "pattern": "createbp/{crId}",
+                    "target": "createBP"
+                },
+                {
+                    "name": "myRequests",
+                    "pattern": "myrequests",
+                    "target": "myRequests"
+                },
+                {
+                    "name": "myRequestDetail",
+                    "pattern": "myrequests/{crId}",
+                    "target": "myRequestDetail"
+                },
+                {
+                    "name": "myApprovals",
+                    "pattern": "myapprovals",
+                    "target": "myApprovals"
+                },
+                {
+                    "name": "approvalDetail",
+                    "pattern": "myapprovals/{crId}/{stepNumber}",
+                    "target": "approvalDetail"
+                },
+                {
+                    "pattern": "releasecriteria",
+                    "name": "releaseCriteria",
+                    "target": "releaseCriteria"
+                },
+                {
+                    "pattern": "releasecriteria/{criteriaId}/{appliesTo}",
+                    "name": "releaseCriteriaDetail",
+                    "target": "releaseCriteriaDetail"
+                },
+                {
+                    "pattern": "releasecodes",
+                    "name": "releaseCodes",
+                    "target": "releaseCodes"
+                },
+                {
+                    "pattern": "releasestrategies",
+                    "name": "releaseStrategies",
+                    "target": "releaseStrategies"
+                },
+                {
+                    "pattern": "releasestrategies/{strategyId}/{appliesTo}",
+                    "name": "releaseStrategyDetail",
+                    "target": "releaseStrategyDetail"
+                },
+                {
+                    "pattern": "releasecodes/{codeId}",
+                    "name": "releaseCodeDetail",
+                    "target": "releaseCodeDetail"
+                }
+            ],
+            "targets": {
+                "home": {
+                    "viewName": "Welcome",
+                    "viewLevel": 0
+                },
+                "fieldMaster": {
+                    "viewName": "FieldMaster",
+                    "viewLevel": 1
+                },
+                "fieldMasterDetail": {
+                    "viewName": "FieldMasterDetail",
+                    "viewLevel": 2
+                },
+                "fieldGroups": {
+                    "viewName": "FieldGroups",
+                    "viewLevel": 1
+                },
+                "fieldGroupDetail": {
+                    "viewName": "FieldGroupDetail",
+                    "viewLevel": 2
+                },
+                "bpRoles": {
+                    "viewName": "BPRoles",
+                    "viewLevel": 1
+                },
+                "valueTables": {
+                    "viewName": "ValueTables",
+                    "viewLevel": 1
+                },
+                "validationRules": {
+                    "viewName": "ValidationRules",
+                    "viewLevel": 1
+                },
+                "bpCategories": {
+                    "viewName": "BPCategories",
+                    "viewLevel": 1
+                },
+                "accountGroups": {
+                    "viewName": "AccountGroups",
+                    "viewLevel": 1
+                },
+                "releaseCodes": {
+                    "viewName": "ReleaseCodes",
+                    "viewLevel": 1
+                },
+                "releaseStrategies": {
+                    "viewName": "ReleaseStrategies",
+                    "viewLevel": 1
+                },
+                "myRequests": {
+                    "viewName": "MyRequests",
+                    "viewLevel": 1
+                },
+                "myRequestDetail": {
+                    "viewName": "MyRequestDetail",
+                    "viewLevel": 2
+                },
+                "myApprovals": {
+                    "viewName": "MyApprovals",
+                    "viewLevel": 1
+                },
+                "approvalDetail": {
+                    "viewName": "ApprovalDetail",
+                    "viewLevel": 2
+                },
+                "valueTableDetail": {
+                    "viewName": "ValueTableDetail",
+                    "viewLevel": 2
+                },
+                "validationRuleDetail": {
+                    "viewName": "ValidationRuleDetail",
+                    "viewLevel": 2
+                },
+                "bpRoleDetail": {
+                    "viewName": "BpRoleDetail",
+                    "viewLevel": 2
+                },
+                "bpCategoryDetail": {
+                    "viewName": "BPCategoryDetail",
+                    "viewLevel": 2
+                },
+                "accountGroupDetail": {
+                    "viewName": "AccountGroupDetail",
+                    "viewLevel": 2
+                },
+                "createBP": {
+                    "viewName": "CreateBp",
+                    "viewLevel": 1
+                },
+                "releaseCriteria": {
+                    "viewName": "ReleaseCriteria",
+                    "viewLevel": 1
+                },
+                "releaseCriteriaDetail": {
+                    "viewName": "ReleaseCriteriaDetail",
+                    "viewLevel": 2
+                },
+                "releaseStrategyDetail": {
+                    "viewName": "ReleaseStrategyDetail",
+                    "viewLevel": 2
+                },
+                "releaseCodeDetail": {
+                    "viewName": "ReleaseCodeDetail",
+                    "viewLevel": 2
+                }
+            }
+        }
+    }
+}

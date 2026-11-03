@@ -4,6 +4,7 @@
 
 const cds = require('@sap/cds');
 const { v4: uuid } = require('uuid');
+const integration = require('./integration-service');
 
 // Width of the zero-padded running sequence used for CR IDs, e.g. "0000000001".
 // 10 digits comfortably supports up to 9,999,999,999 requests; the column
@@ -334,61 +335,47 @@ class MDMPortalService extends cds.ApplicationService {
         });
 
         /**
-         * Post an approved change request to SAP
+         * Post an approved change request to SAP.
+         *
+         * Posting normally happens automatically as soon as the last
+         * approval is recorded (see _applyStepDecision). This action is the
+         * manual retry for a CR whose automatic posting failed, or one that
+         * was approved before automatic posting existed.
          */
         this.on('postChangeRequest', async (req) => {
             const { cr_id } = req.data;
-            const db = cds.db;
 
-            try {
-                const cr = await SELECT.one.from('mdm.portal.CRHeader').where({ cr_id: cr_id });
+            const cr = await SELECT.one.from('mdm.portal.CRHeader').where({ cr_id: cr_id });
 
-                if (!cr) {
-                    return req.error(404, `CR ${cr_id} not found`);
-                }
-
-                if (cr.status !== 'APPROVED') {
-                    return req.error(
-                        400,
-                        `Cannot post CR in ${cr.status} status. Must be APPROVED.`
-                    );
-                }
-
-                // TODO: Call SAP RFC / API to post the change request
-                const postedObjectNo = await this.postToSAP(cr);
-
-                if (!postedObjectNo) {
-                    return req.error(500, 'Failed to post to SAP');
-                }
-
-                // Update CR — CRHeader's key is "cr_id", not the default
-                // "ID" that db.update(entity, scalarValue) assumes, so an
-                // explicit .where() is required.
-                await db.update('mdm.portal.CRHeader').where({ cr_id }).set({
-                    status: 'POSTED',
-                    posted_object_no: postedObjectNo,
-                    posted_at: new Date(),
-                });
-
-                // Audit log
-                await this.createAuditLog('CR_HEADER', cr_id, 'POST', req.user.id);
-
-                return {
-                    success: true,
-                    message: `Change Request posted successfully`,
-                    posted_object_no: postedObjectNo,
-                };
-            } catch (error) {
-                console.error('postChangeRequest error:', error);
-
-                // Update CR status to POSTING_FAILED
-                await db
-                    .update('mdm.portal.CRHeader')
-                    .where({ cr_id })
-                    .set({ status: 'POSTING_FAILED' });
-
-                return req.error(500, `Failed to post CR: ${error.message}`);
+            if (!cr) {
+                return req.error(404, `CR ${cr_id} not found`);
             }
+
+            if (cr.status !== 'APPROVED' && cr.status !== 'POSTING_FAILED') {
+                return req.error(
+                    400,
+                    `Cannot post CR in ${cr.status} status. Must be APPROVED or POSTING_FAILED.`
+                );
+            }
+
+            if (cr.request_type !== 'CREATE' && !cr.reference_object_no) {
+                return req.error(
+                    400,
+                    `CR ${cr_id} is a ${cr.request_type} request but has no Business Partner number (reference_object_no).`
+                );
+            }
+
+            // A failed posting is reported through success=false rather than
+            // req.error(): req.error() rolls back this request's transaction,
+            // which would also undo the POSTING_FAILED status and the
+            // requester notification _postApprovedCr has just written.
+            const oResult = await this._postApprovedCr(cr_id, req.user.id);
+
+            return {
+                success: oResult.success,
+                message: oResult.message,
+                posted_object_no: oResult.posted_object_no || null,
+            };
         });
 
         this.on('ValidateField', async (req) => {
@@ -831,11 +818,145 @@ class MDMPortalService extends cds.ApplicationService {
             }
         };
 
-        this.postToSAP = async function (cr) {
-            // TODO: Implement SAP posting logic
-            // - Call RFC or REST API
-            // - Handle errors
-            return `BP-${Date.now()}`;
+        // Which integration-service.js function posts each request type,
+        // and how its outcome is worded in notifications.
+        const S4_POSTING = {
+            CREATE: { post: integration.createBusinessPartner,          done: 'created',             doing: 'creating' },
+            CHANGE: { post: integration.updateBusinessPartner,          done: 'updated',             doing: 'updating' },
+            EXTEND: { post: integration.updateBusinessPartner,          done: 'extended',            doing: 'extending' },
+            DELETE: { post: integration.markBusinessPartnerForDeletion, done: 'marked for deletion', doing: 'marking for deletion' }
+        };
+
+        // Posts one fully approved CR to S/4HANA and writes the outcome
+        // back to the CR: POSTED + the BP number on success (the new number
+        // for CREATE, the CR's reference_object_no otherwise),
+        // POSTING_FAILED on failure, with an IN_APP notification to the
+        // requester either way. Called automatically from
+        // _applyStepDecision the moment the last approval is recorded, and
+        // from postChangeRequest as the manual retry.
+        //
+        // Never throws — same philosophy as _triggerApprovalWorkflow: by
+        // the time this runs the approval decision is already recorded, and
+        // an S/4 outage must not roll that back. A failed posting stays
+        // visible as POSTING_FAILED and can be retried.
+        this._postApprovedCr = async function (crId, actorId) {
+            const db = cds.db;
+            let cr;
+            let oPosted;
+            let oPosting = S4_POSTING.CREATE;
+
+            try {
+                cr = await SELECT.one.from('mdm.portal.CRHeader').where({ cr_id: crId });
+                if (!cr) {
+                    return { success: false, message: `CR ${crId} not found` };
+                }
+                if (cr.status === 'POSTED' || cr.posted_object_no) {
+                    // Already posted — never send the same request twice
+                    // (for CREATE that would be a duplicate BP).
+                    return {
+                        success: true,
+                        message: `Change Request ${crId} was already posted for Business Partner ${cr.posted_object_no}`,
+                        posted_object_no: cr.posted_object_no
+                    };
+                }
+                if (cr.status !== 'APPROVED' && cr.status !== 'POSTING_FAILED') {
+                    return { success: false, message: `CR ${crId} is ${cr.status} — only an approved request can be posted` };
+                }
+                oPosting = S4_POSTING[cr.request_type];
+                if (!oPosting) {
+                    console.log(`[s4] CR ${crId} has request type ${cr.request_type}, which has no S/4HANA posting — left APPROVED`);
+                    return { success: false, message: `Request type ${cr.request_type} cannot be posted to S/4HANA` };
+                }
+
+                oPosted = await oPosting.post(cr);
+            } catch (error) {
+                const sReason = integration.extractS4Error(error);
+                console.error(`[s4] Posting CR ${crId} to S/4HANA failed:`, sReason);
+
+                try {
+                    await db.update('mdm.portal.CRHeader').where({ cr_id: crId }).set({ status: 'POSTING_FAILED' });
+                    await this.createAuditLog('CR_HEADER', crId, 'POST', actorId, null,
+                        { status: 'POSTING_FAILED', error: sReason });
+                    if (cr && cr.requester) {
+                        await db.run(
+                            INSERT.into('mdm.portal.Notification').entries([{
+                                notification_id: uuid(),
+                                cr_cr_id: crId,
+                                event_type: 'POSTING_FAILED',
+                                recipient: cr.requester,
+                                channel: 'IN_APP',
+                                subject: `Change Request ${crId} could not be posted to S/4HANA`,
+                                body: `Your change request ${crId} was approved, but ${oPosting.doing} the Business Partner in S/4HANA failed: ${sReason}`,
+                                status: 'SENT',
+                                sent_at: new Date()
+                            }])
+                        );
+                    }
+                } catch (statusError) {
+                    console.error(`[s4] Failed to record POSTING_FAILED for CR ${crId}:`, statusError.message);
+                }
+
+                return { success: false, message: `Failed to post CR to S/4HANA: ${sReason}` };
+            }
+
+            // S/4 has accepted the request — from here on nothing may turn
+            // this into a "failed" posting, or a retry of a CREATE would
+            // create a duplicate BP.
+            const sBpNumber = oPosted.bpNumber;
+            try {
+                // CRHeader's key is "cr_id", not the default "ID" that
+                // db.update(entity, scalarValue) assumes, so an explicit
+                // .where() is required.
+                await db.update('mdm.portal.CRHeader').where({ cr_id: crId }).set({
+                    status: 'POSTED',
+                    posted_object_no: sBpNumber,
+                    posted_at: new Date()
+                });
+            } catch (updateError) {
+                console.error(
+                    `[s4] Business Partner ${sBpNumber} WAS ${oPosting.done} in S/4HANA for CR ${crId}, but writing ` +
+                    'that back to the CR failed — set status/posted_object_no manually, do NOT re-post:',
+                    updateError.message
+                );
+                return {
+                    success: false,
+                    message: `Business Partner ${sBpNumber} was ${oPosting.done} in S/4HANA, but CR ${crId} could not be updated: ${updateError.message}`,
+                    posted_object_no: sBpNumber
+                };
+            }
+
+            try {
+                await this.createAuditLog('CR_HEADER', crId, 'POST', actorId, null, {
+                    status: 'POSTED',
+                    posted_object_no: sBpNumber,
+                    changes: oPosted.changes,
+                    warnings: oPosted.warnings
+                });
+                if (cr.requester) {
+                    await db.run(
+                        INSERT.into('mdm.portal.Notification').entries([{
+                            notification_id: uuid(),
+                            cr_cr_id: crId,
+                            event_type: 'POSTED',
+                            recipient: cr.requester,
+                            channel: 'IN_APP',
+                            subject: `Change Request ${crId} posted — Business Partner ${sBpNumber}`,
+                            body: `Your change request ${crId} was posted to S/4HANA. Business Partner ${sBpNumber} has been ${oPosting.done}.` +
+                                (oPosted.warnings.length ? ` Notes: ${oPosted.warnings.join(' ')}` : ''),
+                            status: 'SENT',
+                            sent_at: new Date()
+                        }])
+                    );
+                }
+            } catch (notifyError) {
+                console.error(`[notify] Failed to write POSTED audit/notification for CR ${crId}:`, notifyError.message);
+            }
+
+            return {
+                success: true,
+                message: `Change Request ${crId} posted — Business Partner ${sBpNumber} ${oPosting.done}`,
+                posted_object_no: sBpNumber
+            };
         };
 
         // Groups a CR's CRReleaseStep rows into "stages" — the SAME
@@ -1096,6 +1217,16 @@ class MDMPortalService extends cds.ApplicationService {
             await this._notifyRequesterOfDecision(crId, stepNumber, decision, comment, bFullyApproved);
 
             await this.createAuditLog('CR_RELEASE_STEP', `${crId}#${stepNumber}`, decision, actorId);
+
+            // Last approval recorded — create / update / mark for deletion
+            // the Business Partner in S/4HANA straight away (depending on
+            // the request type) and write the BP number back to the CR.
+            // _postApprovedCr never throws, so an S/4 problem leaves the
+            // decision above intact and the CR in POSTING_FAILED (retry via
+            // postChangeRequest).
+            if (bFullyApproved) {
+                await this._postApprovedCr(crId, actorId);
+            }
 
             return {
                 success: true,
