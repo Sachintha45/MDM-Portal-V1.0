@@ -42,7 +42,7 @@
         "kind": "odata-v2",
         "csrf": true,
         "credentials": {
-          "destination": "S4H_HTTP",
+          "destination": "DOX_SBX",
           "path": "/sap/opu/odata/sap/API_BUSINESS_PARTNER"
         }
       }
