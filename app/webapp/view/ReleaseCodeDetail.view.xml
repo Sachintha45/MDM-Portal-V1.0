@@ -115,7 +115,7 @@
                                     <Column><Label text="User ID" design="Bold"/></Column>
                                     <Column width="8rem"><Label text="Type" design="Bold"/></Column>
                                     <Column width="6rem" hAlign="Center"><Label text="Active" design="Bold"/></Column>
-                                    <Column width="3rem" hAlign="End"/>
+                                    <Column width="6rem" hAlign="End"/>
                                 </columns>
                                 <items>
                                     <ColumnListItem type="Active" press=".onUserRowPress">
@@ -124,8 +124,10 @@
                                             <Text text="{assignment_type}" wrapping="false"/>
                                             <core:Icon src="{path: 'active', formatter: '.formatActiveIcon'}"
                                                        color="{path: 'active', formatter: '.formatActiveColor'}"/>
-                                            <Button icon="sap-icon://delete" type="Transparent"
-                                                    tooltip="Remove user" press=".onDeleteUser"/>
+                                            <HBox justifyContent="End">
+                                                <Button icon="sap-icon://edit" type="Transparent" tooltip="Edit user" press=".onUserRowPress"/>
+                                                <Button icon="sap-icon://delete" type="Transparent" tooltip="Remove user" press=".onDeleteUser"/>
+                                            </HBox>
                                         </cells>
                                     </ColumnListItem>
                                 </items>

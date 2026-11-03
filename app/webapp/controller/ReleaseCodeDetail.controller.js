@@ -24,13 +24,13 @@ sap.ui.define([
         // ── Lifecycle ────────────────────────────────────────────────
         onInit: function () {
             this._oViewModel = new JSONModel({
-                busy       : false,
-                isNew      : false,
-                isDirty    : false,
+                busy: false,
+                isNew: false,
+                isDirty: false,
                 selectedTab: "general",
-                userCount  : "0",
-                scopeCount : "0",
-                usageCount : "0"
+                userCount: "0",
+                scopeCount: "0",
+                usageCount: "0"
             });
             this.getView().setModel(this._oViewModel, "view");
             this.getView().setModel(new JSONModel({ items: [] }), "usage");
@@ -42,8 +42,8 @@ sap.ui.define([
         // ── Route matched ────────────────────────────────────────────
         _onRouteMatched: function (oEvent) {
             var oArgs = oEvent.getParameter("arguments");
-            var sRaw  = decodeURIComponent(oArgs.codeId);
-            var sId   = (sRaw === "NEW") ? sRaw : sRaw.toUpperCase();
+            var sRaw = decodeURIComponent(oArgs.codeId);
+            var sId = (sRaw === "NEW") ? sRaw : sRaw.toUpperCase();
 
             try { this.getOwnerComponent().getModel().resetChanges("releaseCodeUpdate"); } catch (e) { /* no pending */ }
             try { this.getOwnerComponent().getModel().resetChanges("releaseCodeUsersUpdate"); } catch (e) { /* no pending */ }
@@ -67,18 +67,18 @@ sap.ui.define([
         // ── Bind existing ────────────────────────────────────────────
         _bindReleaseCode: function (sId) {
             this._oViewModel.setProperty("/isNew", false);
-            this._oViewModel.setProperty("/busy",  true);
+            this._oViewModel.setProperty("/busy", true);
 
             // ReleaseCode has a single-column key (release_code_id), unlike
             // StrategyCharacteristic / ReleaseStrategy which are composite —
             // no extra key parts needed in the path here.
             var sPath = "/ReleaseCodes(release_code_id='" + encodeURIComponent(sId) + "')";
             this.getView().bindObject({
-                path      : sPath,
+                path: sPath,
                 parameters: {
                     $select: "release_code_id,description,master_data_type_master_data_type_id," +
-                             "sla_hours,escalation_to,escalation_hours,active," +
-                             "createdAt,createdBy,modifiedAt,modifiedBy",
+                        "sla_hours,escalation_to,escalation_hours,active," +
+                        "createdAt,createdBy,modifiedAt,modifiedBy",
                     $$updateGroupId: "releaseCodeUpdate"
                 },
                 events: {
@@ -128,7 +128,7 @@ sap.ui.define([
         // ── Create new ───────────────────────────────────────────────
         _createNew: function () {
             this._oViewModel.setProperty("/isNew", true);
-            this._oViewModel.setProperty("/busy",  true);
+            this._oViewModel.setProperty("/busy", true);
 
             this.getView().unbindObject();
 
@@ -142,12 +142,12 @@ sap.ui.define([
             // at Save time — same approach ReleaseCriteriaDetail uses for
             // its own key property on a freshly created context.
             var oContext = oListBinding.create({
-                release_code_id : "",
-                description     : "",
-                sla_hours       : 24,
-                escalation_to   : null,
+                release_code_id: "",
+                description: "",
+                sla_hours: 24,
+                escalation_to: null,
                 escalation_hours: null,
-                active          : true,
+                active: true,
                 master_data_type_master_data_type_id: null
             });
             this._oCreateListBinding = oListBinding;
@@ -165,8 +165,8 @@ sap.ui.define([
             var oView = this.getView();
             if (!oView || oView.bIsDestroyed) { return; }
 
-            var sId    = oData.release_code_id || "";
-            var sDesc  = oData.description || "";
+            var sId = oData.release_code_id || "";
+            var sDesc = oData.description || "";
             var sTitle = sId ? (sId + (sDesc ? " \u2014 " + sDesc : "")) : "New Release Code";
 
             var oTitle = this.byId("pageTitle");
@@ -197,9 +197,9 @@ sap.ui.define([
             // Data is already loaded eagerly on bind; re-fetch on tab-select
             // too so the tab reflects any change made elsewhere in the same
             // session (e.g. a user assigned from another tab's dialog).
-            if (sKey === "users")     { this._loadUserCount(); }
-            if (sKey === "scope")     { this._loadScopeCount(); }
-            if (sKey === "usage")     { this._loadUsage(); }
+            if (sKey === "users") { this._loadUserCount(); }
+            if (sKey === "scope") { this._loadScopeCount(); }
+            if (sKey === "usage") { this._loadUsage(); }
             if (sKey === "changelog") { this._loadChangeLog(); }
         },
 
@@ -211,20 +211,20 @@ sap.ui.define([
             if (!sId) { return; }
 
             var oVm = this._oViewModel;
-            oVm.setProperty("/clCreatedAt",  this._fmtDate(oCtx.getProperty("createdAt")));
-            oVm.setProperty("/clCreatedBy",  oCtx.getProperty("createdBy")  || "\u2014");
+            oVm.setProperty("/clCreatedAt", this._fmtDate(oCtx.getProperty("createdAt")));
+            oVm.setProperty("/clCreatedBy", oCtx.getProperty("createdBy") || "\u2014");
             oVm.setProperty("/clModifiedAt", this._fmtDate(oCtx.getProperty("modifiedAt")));
             oVm.setProperty("/clModifiedBy", oCtx.getProperty("modifiedBy") || "\u2014");
 
             // ReleaseCode has a single-column key, so the backend's
             // entity_key is just the raw id — no "::" composite separator
             // (see AUDIT_ENTITIES / auditBuildKey in mdm-service.js).
-            var oTable   = this.byId("logTable");
+            var oTable = this.byId("logTable");
             var oBinding = oTable && oTable.getBinding("items");
             if (!oBinding) { return; }
             oBinding.filter([
                 new Filter("entity_name", FilterOperator.EQ, "ReleaseCode"),
-                new Filter("entity_key",  FilterOperator.EQ, sId)
+                new Filter("entity_key", FilterOperator.EQ, sId)
             ]);
             oBinding.resume();
         },
@@ -293,22 +293,22 @@ sap.ui.define([
             var bEdit = !!oExistingCtx;
 
             if (!this._oUserDialog) {
-                var oIdInput   = new Input({ placeholder: "e.g. jane.doe@company.com", maxLength: 80 });
+                var oIdInput = new Input({ placeholder: "e.g. jane.doe@company.com", maxLength: 80 });
                 var oTypeSelect = new Select({
                     selectedKey: "USER",
                     items: [
-                        new Item({ key: "USER",  text: "User" }),
+                        new Item({ key: "USER", text: "User" }),
                         new Item({ key: "GROUP", text: "Group" })
                     ]
                 });
                 var oActiveSwitch = new Switch({ state: true });
 
                 this._oUserDialog = new Dialog({
-                    title  : "Assign User",
+                    title: "Assign User",
                     content: new SimpleForm({
                         editable: true,
-                        layout  : "ResponsiveGridLayout",
-                        content : [
+                        layout: "ResponsiveGridLayout",
+                        content: [
                             new Label({ text: "User ID", required: true }), oIdInput,
                             new Label({ text: "Assignment Type", required: true }), oTypeSelect,
                             new Label({ text: "Active" }), oActiveSwitch
@@ -319,7 +319,7 @@ sap.ui.define([
                         type: "Emphasized",
                         press: function () {
                             var sUserId = oIdInput.getValue().trim();
-                            var sType   = oTypeSelect.getSelectedKey();
+                            var sType = oTypeSelect.getSelectedKey();
                             var bActive = oActiveSwitch.getState();
                             var oCtxBeingEdited = this._oUserDialog._oEditingCtx;
 
@@ -349,22 +349,22 @@ sap.ui.define([
                         press: function () { this._oUserDialog.close(); }.bind(this)
                     })
                 });
-                this._oUserDialog._oIdInput      = oIdInput;
-                this._oUserDialog._oTypeSelect   = oTypeSelect;
+                this._oUserDialog._oIdInput = oIdInput;
+                this._oUserDialog._oTypeSelect = oTypeSelect;
                 this._oUserDialog._oActiveSwitch = oActiveSwitch;
                 this.getView().addDependent(this._oUserDialog);
             }
 
             this._oUserDialog._oEditingCtx = oExistingCtx;
-            var oIdInput      = this._oUserDialog._oIdInput;
-            var oTypeSelect   = this._oUserDialog._oTypeSelect;
+            var oIdInput = this._oUserDialog._oIdInput;
+            var oTypeSelect = this._oUserDialog._oTypeSelect;
             var oActiveSwitch = this._oUserDialog._oActiveSwitch;
 
             if (bEdit) {
                 this._oUserDialog.setTitle("Edit User Assignment");
                 this._oUserDialog.getBeginButton().setText("Save");
                 oIdInput.setValue(oExistingCtx.getProperty("user_id"));
-                oIdInput.setEditable(false);
+                oIdInput.setEditable(true);
                 oTypeSelect.setSelectedKey(oExistingCtx.getProperty("assignment_type"));
                 oActiveSwitch.setState(oExistingCtx.getProperty("active") !== false);
             } else {
@@ -391,9 +391,9 @@ sap.ui.define([
             // way StrategyCharacteristicValue rows inherit their parent
             // characteristic in ReleaseCriteriaDetail.controller.js.
             oListBinding.create({
-                user_id        : sUserId,
+                user_id: sUserId,
                 assignment_type: sType,
-                active         : bActive
+                active: bActive
             });
 
             var oModel = this.getOwnerComponent().getModel();
@@ -420,7 +420,27 @@ sap.ui.define([
                     MessageBox.error("Could not update assignment: " + (e.message || "Unknown error"));
                 });
         },
+        _replaceUser: function (oOldCtx, sNewUserId, sType, bActive) {
+            var oListBinding = this.byId("usersTable").getBinding("items");
+            var oModel = this.getOwnerComponent().getModel();
 
+            oOldCtx.delete("releaseCodeUsersUpdate");
+            oListBinding.create({
+                user_id: sNewUserId,
+                assignment_type: sType,
+                active: bActive
+            });
+
+            oModel.submitBatch("releaseCodeUsersUpdate")
+                .then(function () {
+                    MessageToast.show("User updated.");
+                    this._loadUserCount();
+                }.bind(this))
+                .catch(function (e) {
+                    oModel.resetChanges("releaseCodeUsersUpdate");
+                    MessageBox.error("Could not update user: " + (e.message || "Unknown error"));
+                });
+        },
         onDeleteUser: function (oEvent) {
             // The row's OWN context from the table's live binding — not a
             // freshly built bindContext() — is what the model actually
@@ -472,9 +492,9 @@ sap.ui.define([
         },
 
         formatScopeTypeText: function (sType) {
-            if (sType === "BP_ROLE")       { return "BP Role"; }
+            if (sType === "BP_ROLE") { return "BP Role"; }
             if (sType === "MATERIAL_VIEW") { return "Material View"; }
-            if (sType === "FIELD_GROUP")   { return "Field Group"; }
+            if (sType === "FIELD_GROUP") { return "Field Group"; }
             return sType || "\u2014";
         },
 
@@ -514,9 +534,9 @@ sap.ui.define([
                 var oTypeSelect = new Select({
                     selectedKey: "BP_ROLE",
                     items: [
-                        new Item({ key: "BP_ROLE",       text: "BP Role" }),
-                        new Item({ key: "MATERIAL_VIEW",  text: "Material View" }),
-                        new Item({ key: "FIELD_GROUP",    text: "Field Group" })
+                        new Item({ key: "BP_ROLE", text: "BP Role" }),
+                        new Item({ key: "MATERIAL_VIEW", text: "Material View" }),
+                        new Item({ key: "FIELD_GROUP", text: "Field Group" })
                     ],
                     change: function () {
                         var sType = oTypeSelect.getSelectedKey();
@@ -527,11 +547,11 @@ sap.ui.define([
                 });
 
                 this._oScopeDialog = new Dialog({
-                    title  : "Add to Scope",
+                    title: "Add to Scope",
                     content: new SimpleForm({
                         editable: true,
-                        layout  : "ResponsiveGridLayout",
-                        content : [
+                        layout: "ResponsiveGridLayout",
+                        content: [
                             new Label({ text: "Scope Type", required: true }), oTypeSelect,
                             new Label({ text: "Scope ID", required: true }), oBpRoleSelect, oFieldGroupSelect, oMaterialViewInput
                         ]
@@ -541,9 +561,9 @@ sap.ui.define([
                         type: "Emphasized",
                         press: function () {
                             var sType = oTypeSelect.getSelectedKey();
-                            var sId   = sType === "BP_ROLE"      ? oBpRoleSelect.getSelectedKey()
-                                      : sType === "FIELD_GROUP"  ? oFieldGroupSelect.getSelectedKey()
-                                      : oMaterialViewInput.getValue().trim();
+                            var sId = sType === "BP_ROLE" ? oBpRoleSelect.getSelectedKey()
+                                : sType === "FIELD_GROUP" ? oFieldGroupSelect.getSelectedKey()
+                                    : oMaterialViewInput.getValue().trim();
                             var oCtxBeingEdited = this._oScopeDialog._oEditingCtx;
 
                             if (!sId) {
@@ -589,23 +609,23 @@ sap.ui.define([
                         press: function () { this._oScopeDialog.close(); }.bind(this)
                     })
                 });
-                this._oScopeDialog._oTypeSelect         = oTypeSelect;
-                this._oScopeDialog._oBpRoleSelect       = oBpRoleSelect;
-                this._oScopeDialog._oFieldGroupSelect   = oFieldGroupSelect;
-                this._oScopeDialog._oMaterialViewInput  = oMaterialViewInput;
+                this._oScopeDialog._oTypeSelect = oTypeSelect;
+                this._oScopeDialog._oBpRoleSelect = oBpRoleSelect;
+                this._oScopeDialog._oFieldGroupSelect = oFieldGroupSelect;
+                this._oScopeDialog._oMaterialViewInput = oMaterialViewInput;
                 this.getView().addDependent(this._oScopeDialog);
             }
 
             this._oScopeDialog._oEditingCtx = oExistingCtx;
 
             var oModel = this.getOwnerComponent().getModel();
-            var oBpRoleSelect     = this._oScopeDialog._oBpRoleSelect;
+            var oBpRoleSelect = this._oScopeDialog._oBpRoleSelect;
             var oFieldGroupSelect = this._oScopeDialog._oFieldGroupSelect;
             var oMaterialViewInput = this._oScopeDialog._oMaterialViewInput;
-            var oTypeSelect        = this._oScopeDialog._oTypeSelect;
+            var oTypeSelect = this._oScopeDialog._oTypeSelect;
 
             var sExistingType = bEdit ? oExistingCtx.getProperty("scope_type") : "BP_ROLE";
-            var sExistingId   = bEdit ? oExistingCtx.getProperty("scope_id")   : "";
+            var sExistingId = bEdit ? oExistingCtx.getProperty("scope_id") : "";
 
             // Populate both option lists fresh every time the dialog opens
             // (manual requestContexts population, not bindItems — a
@@ -621,7 +641,7 @@ sap.ui.define([
                         return a.getProperty("role_id").localeCompare(b.getProperty("role_id"));
                     }).forEach(function (c) {
                         oBpRoleSelect.addItem(new Item({
-                            key : c.getProperty("role_id"),
+                            key: c.getProperty("role_id"),
                             text: c.getProperty("role_id") + " \u2014 " + c.getProperty("description")
                         }));
                     });
@@ -637,7 +657,7 @@ sap.ui.define([
                         return a.getProperty("group_id").localeCompare(b.getProperty("group_id"));
                     }).forEach(function (c) {
                         oFieldGroupSelect.addItem(new Item({
-                            key : c.getProperty("group_id"),
+                            key: c.getProperty("group_id"),
                             text: c.getProperty("group_id") + " \u2014 " + c.getProperty("description")
                         }));
                     });
@@ -674,7 +694,7 @@ sap.ui.define([
             // composition context.
             oListBinding.create({
                 scope_type: sType,
-                scope_id  : sId
+                scope_id: sId
             });
 
             var oModel = this.getOwnerComponent().getModel();
@@ -706,7 +726,7 @@ sap.ui.define([
                 .then(function () {
                     oListBinding.create({
                         scope_type: sNewType,
-                        scope_id  : sNewId
+                        scope_id: sNewId
                     });
                     return oModel.submitBatch("releaseCodeScopeUpdate");
                 })
@@ -721,7 +741,7 @@ sap.ui.define([
 
         onDeleteScope: function (oEvent) {
             var oRowCtx = oEvent.getSource().getBindingContext();
-            var sLabel  = this.formatScopeTypeText(oRowCtx.getProperty("scope_type")) + " \u2013 " + oRowCtx.getProperty("scope_id");
+            var sLabel = this.formatScopeTypeText(oRowCtx.getProperty("scope_type")) + " \u2013 " + oRowCtx.getProperty("scope_id");
 
             MessageBox.confirm("Remove \"" + sLabel + "\" from scope?", {
                 onClose: function (sAction) {
@@ -755,14 +775,14 @@ sap.ui.define([
                 if (!oView || oView.bIsDestroyed) { return; }
 
                 var aItems = aCtx.map(function (c) {
-                    var oData     = c.getObject();
+                    var oData = c.getObject();
                     var oStrategy = oData.strategy || {};
                     return {
                         strategy_id: oStrategy.strategy_id,
                         description: oStrategy.description,
                         step_number: oData.step_number,
-                        parallel   : oData.parallel,
-                        active     : oStrategy.active
+                        parallel: oData.parallel,
+                        active: oStrategy.active
                     };
                 }).filter(function (o) { return !!o.strategy_id; });
 
@@ -775,20 +795,20 @@ sap.ui.define([
 
         // ── Save ─────────────────────────────────────────────────────
         onSave: function () {
-            var sId          = this.byId("inId").getValue().trim().toUpperCase();
-            var sDesc        = this.byId("inDescription").getValue().trim();
-            var sAppliesTo   = this.byId("selAppliesTo").getSelectedKey();
-            var sSla         = this.byId("inSla").getValue().trim();
-            var sEscalateTo  = this.byId("inEscalateTo").getValue().trim();
+            var sId = this.byId("inId").getValue().trim().toUpperCase();
+            var sDesc = this.byId("inDescription").getValue().trim();
+            var sAppliesTo = this.byId("selAppliesTo").getSelectedKey();
+            var sSla = this.byId("inSla").getValue().trim();
+            var sEscalateTo = this.byId("inEscalateTo").getValue().trim();
             var sEscalateHrs = this.byId("inEscalateHours").getValue().trim();
-            var bActive      = this.byId("swActive").getState();
+            var bActive = this.byId("swActive").getState();
 
-            if (!sId)               { MessageBox.error("Code ID is required."); return; }
+            if (!sId) { MessageBox.error("Code ID is required."); return; }
             if (!/^[A-Z0-9_]{1,10}$/.test(sId)) {
                 MessageBox.error("Code ID must be up to 10 characters — letters, numbers, and underscores only.");
                 return;
             }
-            if (!sDesc)             { MessageBox.error("Description is required."); return; }
+            if (!sDesc) { MessageBox.error("Description is required."); return; }
             if (!sSla || isNaN(sSla) || Number(sSla) <= 0) {
                 MessageBox.error("SLA (hours) must be a positive number.");
                 return;
@@ -801,7 +821,7 @@ sap.ui.define([
             this._oViewModel.setProperty("/busy", true);
 
             var bIsNew = this._oViewModel.getProperty("/isNew");
-            var oCtx   = this.getView().getBindingContext();
+            var oCtx = this.getView().getBindingContext();
 
             if (oCtx) {
                 if (bIsNew) { oCtx.setProperty("release_code_id", sId); }
@@ -822,7 +842,7 @@ sap.ui.define([
                     return false;
                 })
                 .then(function (bWasCreated) {
-                    this._oViewModel.setProperty("/busy",    false);
+                    this._oViewModel.setProperty("/busy", false);
                     this._oViewModel.setProperty("/isDirty", false);
                     MessageToast.show("Release code saved successfully.");
 

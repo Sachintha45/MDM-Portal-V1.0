@@ -5,10 +5,15 @@ sap.ui.define([
     "sap/ui/model/FilterOperator",
     "sap/m/MessageToast",
     "sap/ui/core/Fragment",
-    "mdm/portal/util/ApprovalHelper"
-], function (Controller, JSONModel, Filter, FilterOperator, MessageToast, Fragment, ApprovalHelper) {
+    "mdm/portal/util/ApprovalHelper",
+    "sap/m/Popover",
+    "sap/m/VBox",
+    "sap/m/Title",
+    "sap/m/Text"
+], function (Controller, JSONModel, Filter, FilterOperator, MessageToast, Fragment, ApprovalHelper,
+    Popover, VBox, Title, Text) {
     "use strict";
-
+ 
     // Maps route key → breadcrumb text shown in ShellBar secondTitle
     var mRouteLabels = {
         home: "Home",
@@ -40,17 +45,20 @@ sap.ui.define([
         help: "Help",
         appSettings: "Settings"
     };
-
+ 
     return Controller.extend("mdm.portal.controller.App", {
-
+ 
         onInit: function () {
             var oUiModel = new JSONModel({
                 pendingApprovals: 0,
-                shellBreadcrumb: mRouteLabels.fieldMaster
+                shellBreadcrumb: mRouteLabels.fieldMaster,
+                userId: "",
+                userInitials: "?"
             });
             this.getView().setModel(oUiModel, "ui");
             this._loadPendingApprovalCount();
-
+            this._loadCurrentUser();
+ 
             // The breadcrumb was previously only updated from onNavItemSelect,
             // so it only changed when a side-nav item was clicked directly.
             // Any other navigation — opening a row from a list, a link inside a
@@ -59,19 +67,19 @@ sap.ui.define([
             // routeMatched event covers every navigation path uniformly.
             this.getOwnerComponent().getRouter()
                 .attachRouteMatched(this._onAnyRouteMatched, this);
-
+ 
             // Correct the content margin after initial render
             setTimeout(function () {
                 this._adjustContentWidth();
                 this._fixClipPath();
             }.bind(this), 500);
-
+ 
             setTimeout(function () {
                 var oToolPage = this.byId("toolPage");
                 if (!oToolPage) return;
                 var oToolPageDom = oToolPage.getDomRef();
                 if (!oToolPageDom) return;
-
+ 
                 // Observe the whole ToolPage subtree. Pages are created and
                 // destroyed by routing, so watching a single wrapper found at
                 // startup misses pages navigated to later. On any style/child
@@ -80,14 +88,14 @@ sap.ui.define([
                 var oObserver = new MutationObserver(function () {
                     fnStrip();
                 });
-
+ 
                 oObserver.observe(oToolPageDom, {
                     attributes: true,
                     attributeFilter: ["style"],
                     subtree: true,
                     childList: true
                 });
-
+ 
                 this._oClipPathObserver = oObserver;
                 // Run once now in case a page is already rendered
                 fnStrip();
@@ -98,20 +106,20 @@ sap.ui.define([
             if (!oToolPage) return;
             var oToolPageDom = oToolPage.getDomRef();
             if (!oToolPageDom) return;
-
+ 
             var oSideContent = oToolPageDom.querySelector(".sapTntToolPageSideContent");
             var oMainContent = oToolPageDom.querySelector(".sapTntToolPageMainContent");
             if (!oMainContent) return;
-
+ 
             var iSideWidth = oSideContent
                 ? oSideContent.getBoundingClientRect().width : 0;
-
+ 
             oMainContent.style.marginLeft = iSideWidth + "px";
             oMainContent.style.width = "calc(100% - " + iSideWidth + "px)";
-
+ 
             // Fire resize so SAP Table re-evaluates demandPopin columns
             window.dispatchEvent(new Event("resize"));
-
+ 
             // Invalidate the current page's table (id differs per page:
             // fieldTable / groupTable / valueTable / ruleTable) so columns
             // recalculate after the side nav toggles.
@@ -126,7 +134,7 @@ sap.ui.define([
                 }
             }
         },
-
+ 
         // ── Pending approval count (ShellBar notification badge) ───────
         // Uses the same ApprovalHelper.getMyPendingApprovals logic as the
         // My Approvals inbox, so the badge count and the inbox list always
@@ -134,7 +142,7 @@ sap.ui.define([
         _loadPendingApprovalCount: function () {
             var oModel  = this.getOwnerComponent().getModel();
             var oUiModel = this.getView().getModel("ui");
-
+ 
             ApprovalHelper.getCurrentUserId(oModel)
                 .then(function (sUserId) {
                     return ApprovalHelper.getMyPendingApprovals(oModel, sUserId);
@@ -147,7 +155,7 @@ sap.ui.define([
                     oUiModel.setProperty("/pendingApprovals", 0);
                 });
         },
-
+ 
         // ── ShellBar breadcrumb helper ──────────────────────────────────
         _onAnyRouteMatched: function (oEvent) {
             this._setShellBreadcrumb(oEvent.getParameter("name"));
@@ -160,7 +168,7 @@ sap.ui.define([
         onNavItemSelect: function (oEvent) {
             var oItem = oEvent.getParameter("item");
             if (!oItem) return;
-
+ 
             // Explicitly move focus away from the nav item BEFORE navigating.
             // This prevents the aria-hidden conflict: when UI5 collapses a
             // NavigationListItem group it sets aria-hidden on it, but if a
@@ -171,7 +179,7 @@ sap.ui.define([
             if (document.activeElement && document.activeElement !== document.body) {
                 document.activeElement.blur();
             }
-
+ 
             var sKey = oItem.getKey();
             if (sKey) {
                 var oRouter = this.getOwnerComponent().getRouter();
@@ -181,7 +189,7 @@ sap.ui.define([
                     MessageToast.show(oItem.getText() + " \u2014 coming soon");
                 }
             }
-
+ 
             // Auto-collapse on Phone after selection
             if (sap.ui.Device.system.phone) {
                 this.byId("toolPage").setSideExpanded(false);
@@ -193,7 +201,7 @@ sap.ui.define([
         onSideNavToggle: function () {
             var oToolPage = this.byId("toolPage");
             oToolPage.setSideExpanded(!oToolPage.getSideExpanded());
-
+ 
             // Wait for SAP animation to finish then remeasure
             setTimeout(function () {
                 this._adjustContentWidth();
@@ -206,7 +214,7 @@ sap.ui.define([
             if (!oToolPage) return;
             var oToolPageDom = oToolPage.getDomRef();
             if (!oToolPageDom) return;
-
+ 
             // Target EVERY DynamicPage content wrapper currently in the DOM,
             // so the fix works for FieldMaster, FieldGroups, ValueTables,
             // ValidationRules — whichever page is showing.
@@ -224,7 +232,7 @@ sap.ui.define([
         onSearchOpen: function () {
             // ShellBar handles its own search overlay; stub for custom logic
         },
-
+ 
         // ── Notifications ───────────────────────────────────────────────
         // Lazy-loads the popover fragment on first press and caches it —
         // same pattern used elsewhere in this app for on-demand dialogs.
@@ -253,7 +261,7 @@ sap.ui.define([
                 return oPopover;
             }.bind(this));
         },
-
+ 
         _loadNotifications: function () {
             var oModel = this.getOwnerComponent().getModel();
             ApprovalHelper.getCurrentUserId(oModel)
@@ -288,7 +296,7 @@ sap.ui.define([
                     console.warn("Could not load notifications", oErr);
                 });
         },
-
+ 
         _formatNotificationDate: function (vDate) {
             if (!vDate) { return ""; }
             var oDate = new Date(vDate);
@@ -303,7 +311,7 @@ sap.ui.define([
             if (iDiffDay < 7) { return iDiffDay + " day" + (iDiffDay === 1 ? "" : "s") + " ago"; }
             return oDate.toLocaleDateString();
         },
-
+ 
         // Clicking a notification takes you to the related CR — same
         // detail page whether the notification was an assignment or a
         // decision, since Notification doesn't carry step_number to route
@@ -321,8 +329,61 @@ sap.ui.define([
             }
         },
         // ── User avatar / profile ───────────────────────────────────────
-        onAvatarPress: function () {
-            // TODO: open user menu Popover
+ 
+        // Resolves the logged-in user (same getCurrentUser() function used
+        // elsewhere for approval routing) and derives the two-letter
+        // initials shown on the ShellBar avatar — previously hardcoded to
+        // "RJ" regardless of who was actually logged in.
+        _loadCurrentUser: function () {
+            var oUiModel = this.getView().getModel("ui");
+            var oModel = this.getOwnerComponent().getModel();
+ 
+            ApprovalHelper.getCurrentUserId(oModel).then(function (sUserId) {
+                oUiModel.setProperty("/userId", sUserId);
+                oUiModel.setProperty("/userInitials", this._deriveInitials(sUserId));
+            }.bind(this));
+        },
+ 
+        // "geethagini.sivamoorthy@intellectconsulting.io" -> "GS" (first
+        // letter of each dot/underscore/hyphen-separated part of the email's
+        // local part — matches how every seeded user id in this app is
+        // formatted: firstname.lastname@...). Falls back sensibly for
+        // anything that doesn't fit that shape rather than showing nothing.
+        _deriveInitials: function (sUserId) {
+            if (!sUserId || sUserId === "anonymous") { return "?"; }
+            var sLocalPart = sUserId.split("@")[0];
+            var aParts = sLocalPart.split(/[._-]+/).filter(Boolean);
+            if (aParts.length >= 2) {
+                return (aParts[0].charAt(0) + aParts[1].charAt(0)).toUpperCase();
+            }
+            if (aParts.length === 1 && aParts[0]) {
+                return aParts[0].substring(0, 2).toUpperCase();
+            }
+            return "?";
+        },
+ 
+        onAvatarPress: function (oEvent) {
+            if (!this._oUserPopover) {
+                this._oUserPopover = new Popover({
+                    placement: "Bottom",
+                    showHeader: false,
+                    contentWidth: "16rem",
+                    content: [
+                        new VBox({
+                            class: "sapUiSmallMargin",
+                            items: [
+                                new Title({ text: "Signed in as", level: "H6" }),
+                                new Text({
+                                    text: "{ui>/userId}",
+                                    class: "sapUiTinyMarginTop"
+                                })
+                            ]
+                        })
+                    ]
+                });
+                this.getView().addDependent(this._oUserPopover);
+            }
+            this._oUserPopover.openBy(oEvent.getSource());
         }
     });
 });

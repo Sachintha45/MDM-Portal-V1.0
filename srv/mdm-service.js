@@ -82,11 +82,11 @@ class MDMPortalService extends cds.ApplicationService {
         // =====================================================================
         this.on('SaveCRAttachments', async (req) => {
             const { cr_id, attachments = [] } = req.data;
-            if (!cr_id)              { return req.error(400, 'cr_id is required'); }
+            if (!cr_id) { return req.error(400, 'cr_id is required'); }
             if (!attachments.length) { return { success: true, message: 'No attachments to save.', saved: 0 }; }
 
             const actor = req.user?.id || 'system';
-            const dNow  = new Date().toISOString();
+            const dNow = new Date().toISOString();
 
             // Verify CR exists
             const cr = await SELECT.one.from('mdm.portal.CRHeader').where({ cr_id });
@@ -97,19 +97,19 @@ class MDMPortalService extends cds.ApplicationService {
             await DELETE.from('mdm.portal.CRAttachment').where({ cr_cr_id: cr_id });
 
             const aRows = attachments.map(a => ({
-                attachment_id    : uuid(),       // uses the uuid package imported at top of file
-                cr_cr_id         : cr_id,
-                file_name        : a.file_name        || 'unknown',
-                mime_type        : a.mime_type        || 'application/octet-stream',
-                size_bytes       : a.size_bytes       || 0,
-                object_store_uri : a.object_store_uri || '',
-                description      : a.description      || '',
-                uploaded_by      : actor,
-                uploaded_at      : dNow,
-                createdAt        : dNow,
-                createdBy        : actor,
-                modifiedAt       : dNow,
-                modifiedBy       : actor
+                attachment_id: uuid(),       // uses the uuid package imported at top of file
+                cr_cr_id: cr_id,
+                file_name: a.file_name || 'unknown',
+                mime_type: a.mime_type || 'application/octet-stream',
+                size_bytes: a.size_bytes || 0,
+                object_store_uri: a.object_store_uri || '',
+                description: a.description || '',
+                uploaded_by: actor,
+                uploaded_at: dNow,
+                createdAt: dNow,
+                createdBy: actor,
+                modifiedAt: dNow,
+                modifiedBy: actor
             }));
 
             await INSERT.into('mdm.portal.CRAttachment').entries(aRows);
@@ -625,9 +625,9 @@ class MDMPortalService extends cds.ApplicationService {
             const bNumeric = sDataType === 'INTEGER';
             const norm = (v) => bNumeric ? Number(v) : String(v);
 
-            const sVal  = norm(sCrValue);
+            const sVal = norm(sCrValue);
             const sFrom = norm(oCondition.value_from);
-            const sTo   = norm(oCondition.value_to);
+            const sTo = norm(oCondition.value_to);
 
             switch (oCondition.operator) {
                 case 'EQ': return sVal === sFrom;
@@ -1172,14 +1172,14 @@ class MDMPortalService extends cds.ApplicationService {
             await db.run(
                 INSERT.into('mdm.portal.AuditLog').entries([
                     {
-                        audit_id    : uuid(),
-                        entity_name : entityName,
-                        entity_key  : entityKey,
+                        audit_id: uuid(),
+                        entity_name: entityName,
+                        entity_key: entityKey,
                         action,
                         actor,
-                        acted_at    : new Date(),
+                        acted_at: new Date(),
                         before_value: beforeValue ? JSON.stringify(beforeValue) : null,
-                        after_value : afterValue  ? JSON.stringify(afterValue)  : null
+                        after_value: afterValue ? JSON.stringify(afterValue) : null
                     },
                 ])
             );
@@ -1197,16 +1197,41 @@ class MDMPortalService extends cds.ApplicationService {
         // =====================================================================
 
         const AUDIT_ENTITIES = [
-            { entity: 'FieldMasters',  name: 'FieldMaster',  key: 'field_id'         },
-            { entity: 'FieldGroups',   name: 'FieldGroup',   key: 'group_id'         },
-            { entity: 'BPCategories',  name: 'BPCategory',   key: 'category_id'      },
-            { entity: 'BPRoles',       name: 'BPRole',       key: 'role_id'          },
-            { entity: 'ReleaseCodes',  name: 'ReleaseCode',  key: 'release_code_id'  },
-            { entity: 'StrategyCharacteristics', name: 'StrategyCharacteristic',
-              key: ['characteristic_id', 'master_data_type_master_data_type_id'] },
-            { entity: 'ReleaseStrategies', name: 'ReleaseStrategy',
-              key: ['strategy_id', 'master_data_type_master_data_type_id'] },
+            { entity: 'FieldMasters', name: 'FieldMaster', key: 'field_id' },
+            { entity: 'FieldGroups', name: 'FieldGroup', key: 'group_id' },
+            { entity: 'BPCategories', name: 'BPCategory', key: 'category_id' },
+            { entity: 'BPRoles', name: 'BPRole', key: 'role_id' },
+            { entity: 'ReleaseCodes', name: 'ReleaseCode', key: 'release_code_id' },
+            {
+                entity: 'StrategyCharacteristics', name: 'StrategyCharacteristic',
+                key: ['characteristic_id', 'master_data_type_master_data_type_id']
+            },
+            {
+                entity: 'ReleaseStrategies', name: 'ReleaseStrategy',
+                key: ['strategy_id', 'master_data_type_master_data_type_id']
+            },
         ];
+
+        // ── Block deleting a Field Master entry that is still assigned to BP roles ──
+        this.before('DELETE', 'FieldMasters', async (req) => {
+            const sFieldId = req.data && req.data.field_id;
+            if (!sFieldId) { return; }
+
+            const aAssigned = await SELECT.from('mdm.portal.BPRoleField')
+                .columns('role_role_id').where({ field_field_id: sFieldId });
+            const aPrereq = await SELECT.from('mdm.portal.BPRolePrereqField')
+                .columns('role_role_id').where({ field_field_id: sFieldId });
+
+            const aRoles = [...new Set(
+                aAssigned.concat(aPrereq).map(r => r.role_role_id)
+            )];
+
+            if (aRoles.length) {
+                return req.reject(409,
+                    `Field "${sFieldId}" is assigned to BP role(s): ${aRoles.join(', ')}. ` +
+                    `Please remove it from those roles first, then delete it.`);
+            }
+        });
 
         function auditKeyFields(cfg) {
             return Array.isArray(cfg.key) ? cfg.key : [cfg.key];
@@ -1259,7 +1284,7 @@ class MDMPortalService extends cds.ApplicationService {
             // AFTER CREATE
             this.after('CREATE', cfg.entity, async (data, req) => {
                 const oData = auditNormalizeData(data);
-                const sKey  = auditBuildKey(cfg, oData);
+                const sKey = auditBuildKey(cfg, oData);
                 if (!sKey) return;
                 // The raw event payload can be key-fields-only (confirmed
                 // via live testing) rather than the full created record —
@@ -1299,7 +1324,7 @@ class MDMPortalService extends cds.ApplicationService {
             // AFTER UPDATE
             this.after('UPDATE', cfg.entity, async (data, req) => {
                 const oData = auditNormalizeData(data) || req.data;
-                const sKey  = req._auditKey || auditBuildKey(cfg, auditKeySource(cfg, req, oData));
+                const sKey = req._auditKey || auditBuildKey(cfg, auditKeySource(cfg, req, oData));
                 if (!sKey) return;
                 // Same reasoning as CREATE — re-read the full record so the
                 // "after" snapshot isn't just the (possibly partial) PATCH
@@ -1347,7 +1372,7 @@ class MDMPortalService extends cds.ApplicationService {
         //  Called by both "Save Draft" (submit=false) and "Save & Create" (submit=true).
         // =====================================================================
         this.on('SaveBPChangeRequest', async (req) => {
-            const db  = cds.db;
+            const db = cds.db;
             const {
                 cr_id: existingCrId,
                 request_type,
@@ -1358,11 +1383,11 @@ class MDMPortalService extends cds.ApplicationService {
                 business_justification,
                 priority,
                 submit,
-                bp_roles     = [],
+                bp_roles = [],
                 field_values = []
             } = req.data;
 
-            const actor   = req.user?.id || 'system';
+            const actor = req.user?.id || 'system';
 
             // BP Account Group is marked required on the Create BP screen
             // (red asterisk) precisely because everything downstream —
@@ -1378,11 +1403,11 @@ class MDMPortalService extends cds.ApplicationService {
                 return req.error(400, 'BP Account Group is required.');
             }
 
-            const isNew   = !existingCrId;
-            let sCrId     = isNew
+            const isNew = !existingCrId;
+            let sCrId = isNew
                 ? await generateNextCrId(cds.db)
                 : existingCrId;
-            const sStatus   = submit ? 'IN_APPROVAL' : 'DRAFT';
+            const sStatus = submit ? 'IN_APPROVAL' : 'DRAFT';
             // CRHeader.priority is a CRPriority enum (NORMAL | HIGH) — guard
             // against anything else coming in from the client and fall back
             // to the schema default.
@@ -1408,23 +1433,23 @@ class MDMPortalService extends cds.ApplicationService {
                     for (let iAttempt = 0; iAttempt < 2 && !bInserted; iAttempt++) {
                         try {
                             await INSERT.into('mdm.portal.CRHeader').entries({
-                                cr_id                             : sCrId,
-                                cr_group_id                       : sCrId,        // group = CR itself for now
-                                request_type                      : request_type || 'CREATE',
+                                cr_id: sCrId,
+                                cr_group_id: sCrId,        // group = CR itself for now
+                                request_type: request_type || 'CREATE',
                                 master_data_type_master_data_type_id: 'BUSINESS PARTNER',
-                                scenario_code                     : 'BP_CREATE',
-                                bp_category_category_id           : bp_category    || null,
-                                account_group_account_group_id    : account_group  || null,
-                                reference_object_no               : reference_object_no || null,
-                                requester                         : actor,
-                                priority                          : sPriority,
-                                business_justification            : business_justification || null,
-                                status                            : sStatus,
-                                submitted_at                      : submit ? dNow : null,
-                                createdAt                         : dNow,
-                                createdBy                         : actor,
-                                modifiedAt                        : dNow,
-                                modifiedBy                        : actor
+                                scenario_code: 'BP_CREATE',
+                                bp_category_category_id: bp_category || null,
+                                account_group_account_group_id: account_group || null,
+                                reference_object_no: reference_object_no || null,
+                                requester: actor,
+                                priority: sPriority,
+                                business_justification: business_justification || null,
+                                status: sStatus,
+                                submitted_at: submit ? dNow : null,
+                                createdAt: dNow,
+                                createdBy: actor,
+                                modifiedAt: dNow,
+                                modifiedBy: actor
                             });
                             bInserted = true;
                         } catch (eInsert) {
@@ -1450,15 +1475,15 @@ class MDMPortalService extends cds.ApplicationService {
 
                     // ── UPDATE header ────────────────────────────────────
                     await UPDATE('mdm.portal.CRHeader').where({ cr_id: sCrId }).set({
-                        bp_category_category_id        : bp_category   || null,
-                        account_group_account_group_id : account_group || null,
-                        reference_object_no            : reference_object_no || null,
-                        business_justification         : business_justification || null,
-                        priority                        : sPriority,
-                        status                         : sStatus,
-                        submitted_at                   : submit ? dNow : null,
-                        modifiedAt                      : dNow,
-                        modifiedBy                      : actor
+                        bp_category_category_id: bp_category || null,
+                        account_group_account_group_id: account_group || null,
+                        reference_object_no: reference_object_no || null,
+                        business_justification: business_justification || null,
+                        priority: sPriority,
+                        status: sStatus,
+                        submitted_at: submit ? dNow : null,
+                        modifiedAt: dNow,
+                        modifiedBy: actor
                     });
 
                     // ── Delete old child rows and re-insert fresh ─────────
@@ -1470,10 +1495,10 @@ class MDMPortalService extends cds.ApplicationService {
                 if (bp_roles.length) {
                     await INSERT.into('mdm.portal.CRBPRole').entries(
                         bp_roles.map(r => ({
-                            cr_cr_id    : sCrId,
+                            cr_cr_id: sCrId,
                             role_role_id: r.role_id,
-                            instance_no : r.instance_no || 1,
-                            auto_pulled : r.auto_pulled  || false
+                            instance_no: r.instance_no || 1,
+                            auto_pulled: r.auto_pulled || false
                         }))
                     );
                 }
@@ -1488,19 +1513,19 @@ class MDMPortalService extends cds.ApplicationService {
                 if (aFvRows.length) {
                     await INSERT.into('mdm.portal.CRFieldValue').entries(
                         aFvRows.map(fv => ({
-                            cr_cr_id        : sCrId,
-                            role_id         : fv.role_id          || '',
-                            instance_no     : fv.instance_no      || 1,
-                            field_field_id  : fv.field_id,
+                            cr_cr_id: sCrId,
+                            role_id: fv.role_id || '',
+                            instance_no: fv.instance_no || 1,
+                            field_field_id: fv.field_id,
                             // '' / 0 for ordinary single-value fields; only
                             // populated when field_id refers to a grid-type
                             // FieldMaster (fv.column_name / fv.counter come
                             // from the grid widget row/column the user edited).
-                            column_name     : fv.column_name      || '',
-                            counter         : fv.counter          || 0,
-                            old_value       : null,
-                            new_value       : String(fv.new_value),
-                            source_level    : fv.source_level     || 'ROLE',
+                            column_name: fv.column_name || '',
+                            counter: fv.counter || 0,
+                            old_value: null,
+                            new_value: String(fv.new_value),
+                            source_level: fv.source_level || 'ROLE',
                             prereq_indicator: fv.prereq_indicator === true
                         }))
                     );
@@ -1575,8 +1600,8 @@ class MDMPortalService extends cds.ApplicationService {
                 );
 
                 return {
-                    cr_id  : sCrId,
-                    status : sStatus,
+                    cr_id: sCrId,
+                    status: sStatus,
                     message: submit
                         ? `Change request ${sCrId} submitted for approval.`
                         : `Change request ${sCrId} saved as draft.`
@@ -1603,7 +1628,7 @@ class MDMPortalService extends cds.ApplicationService {
             let rows = await db.run(
                 SELECT.from('mdm.portal.CRHeader')
                     .columns('reference_object_no', 'bp_category_category_id',
-                             'account_group_account_group_id', 'requester')
+                        'account_group_account_group_id', 'requester')
                     .where({ status: 'POSTED' })
                     .and('reference_object_no IS NOT NULL')
             );
@@ -1629,13 +1654,13 @@ class MDMPortalService extends cds.ApplicationService {
             });
 
             return filtered.map(r => ({
-                bp_number    : r.reference_object_no,
-                name         : r.requester || r.reference_object_no,
-                category     : r.bp_category_category_id || '',
+                bp_number: r.reference_object_no,
+                name: r.requester || r.reference_object_no,
+                category: r.bp_category_category_id || '',
                 account_group: r.account_group_account_group_id || '',
-                country      : '',
-                city         : '',
-                status       : 'Active'
+                country: '',
+                city: '',
+                status: 'Active'
             }));
         });
 
@@ -1659,15 +1684,15 @@ class MDMPortalService extends cds.ApplicationService {
                 // Return a minimal stub so the UI can still work
                 return {
                     bp_number,
-                    name         : bp_number,
-                    name2        : '',
-                    category     : '',
+                    name: bp_number,
+                    name2: '',
+                    category: '',
                     account_group: '',
-                    country      : '',
-                    city         : '',
-                    street       : '',
-                    telephone    : '',
-                    email        : '',
+                    country: '',
+                    city: '',
+                    street: '',
+                    telephone: '',
+                    email: '',
                     existing_roles: []
                 };
             }
@@ -1689,15 +1714,15 @@ class MDMPortalService extends cds.ApplicationService {
 
             return {
                 bp_number,
-                name         : fv['NAME1'] || bp_number,
-                name2        : fv['NAME2'] || '',
-                category     : cr.bp_category_category_id || '',
+                name: fv['NAME1'] || bp_number,
+                name2: fv['NAME2'] || '',
+                category: cr.bp_category_category_id || '',
                 account_group: cr.account_group_account_group_id || '',
-                country      : fv['COUNTRY'] || '',
-                city         : fv['CITY'] || '',
-                street       : fv['STREET'] || '',
-                telephone    : fv['TELEPHONE'] || '',
-                email        : fv['EMAIL'] || '',
+                country: fv['COUNTRY'] || '',
+                city: fv['CITY'] || '',
+                street: fv['STREET'] || '',
+                telephone: fv['TELEPHONE'] || '',
+                email: fv['EMAIL'] || '',
                 existing_roles: roleRows.map(r => r.role_role_id)
             };
         });
@@ -1766,9 +1791,9 @@ class MDMPortalService extends cds.ApplicationService {
                 prereqFieldIds.forEach(fid => { keyObj[fid] = inst.fields[fid] || ''; });
                 const keyLabel = prereqFieldIds.map(fid => inst.fields[fid] || '—').join(' / ');
                 return {
-                    instance_no : instanceNo++,
-                    key_label   : keyLabel,
-                    key_values  : JSON.stringify(keyObj),
+                    instance_no: instanceNo++,
+                    key_label: keyLabel,
+                    key_values: JSON.stringify(keyObj),
                     field_values: JSON.stringify(inst.fields)
                 };
             });
