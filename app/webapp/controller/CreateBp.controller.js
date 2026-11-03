@@ -128,9 +128,9 @@ sap.ui.define([
             oRt.setProperty("/crId", sCrId);
             oRt.setProperty("/status", "Draft");
             oRt.setProperty("/subtitle", "Editing draft \u2014 " + sCrId);
-            var sUrl = this.getOwnerComponent().getModel().getServiceUrl().replace(//$/, "")
-                "/ChangeRequests('" + encodeURIComponent(sCrId) + "')"
-"?$expand=bp_roles,field_values";
+            var sUrl = this.getOwnerComponent().getModel().getServiceUrl().replace(/\/$/, "")
+                + "/ChangeRequests('" + encodeURIComponent(sCrId) + "')"
+                + "?$expand=bp_roles,field_values";
             fetch(sUrl, { headers: { Accept: "application/json" } })
                 .then(function (r) {
                     if (!r.ok) { throw new Error("HTTP " + r.status); }
@@ -260,7 +260,7 @@ sap.ui.define([
                     // So they're visible when editing, and included on re-save
                     // without the user having to re-attach them.
                     var oModel = this.getOwnerComponent().getModel();
-                    var sBase = oModel.getServiceUrl().replace(//$/, "");
+                    var sBase = oModel.getServiceUrl().replace(/\/$/, "");
                         fetch(sBase + "/CRAttachments?$filter=cr_cr_id eq '" +
                             encodeURIComponent(sCrId) + "'&$select=file_name,mime_type,size_bytes",
                             { headers: { Accept: "application/json" } })
@@ -416,7 +416,7 @@ sap.ui.define([
                             item.hasPrereq = aRolesWithPrereq.has(item.key);
                         });
                         this.getView().getModel("roles").setProperty("/items", aUpdated);
-                    }.bind(this)).catch(function () { /* non-fatal / });
+                    }.bind(this)).catch(function () { /* non-fatal */ });
 }.bind(this)).catch(this._loadError("roles"));
 // Account Groups
 oModel.bindList("/AccountGroups", null, [new Sorter("account_group_id")], [
@@ -615,7 +615,7 @@ if ((this._oRt.getProperty("/roleKeys") || []).length) {
 this._renderTabsForActiveRole();
 }
 }.bind(this))
-.catch(function () { /* non-fatal — form still works without pre-fill / });
+.catch(function () { /* non-fatal — form still works without pre-fill */ });
 },
 // Pre-fill form values from the existing BP response.
 // Called in EXTEND mode so the user sees existing data in every field.
@@ -2751,9 +2751,7 @@ return;
 // value-list validation.
 var aInvalid = this._validateRequired(false);
 if (aInvalid.length) {
-MessageBox.warning("Please fix the following before saving:
-" + aInvalid.join("
-"));
+MessageBox.warning("Please fix the following before saving:\n\n" + aInvalid.join("\n"));
 return;
 }
 this._saveCR(false);
@@ -2761,9 +2759,7 @@ this._saveCR(false);
 onSaveCreate: function () {
 var aMissing = this._validateRequired(true);
 if (aMissing.length) {
-MessageBox.warning("Please fix the following before submitting:
-" + aMissing.join("
-"));
+MessageBox.warning("Please fix the following before submitting:\n\n" + aMissing.join("\n"));
 return;
 }
 MessageBox.confirm(
@@ -2877,7 +2873,7 @@ field_values : aCRFieldVals
 // ── 5. Call SaveBPChangeRequest via direct HTTP POST ─────
 oRt.setProperty("/busy", true);
 var sServiceUrl = this.getOwnerComponent().getModel().getServiceUrl();
-var sActionUrl = sServiceUrl.replace(//$/, "") + "/SaveBPChangeRequest";
+var sActionUrl = sServiceUrl.replace(/\/$/, "") + "/SaveBPChangeRequest";
 // Debug: log what we're about to save
 console.log("[SaveBPChangeRequest] URL:", sActionUrl);
 console.log("[SaveBPChangeRequest] payload:", JSON.stringify({
@@ -2924,7 +2920,7 @@ var sCrId = (oResult && oResult.cr_id) || "";
 // ── Save attachment metadata if any files were attached ──
 var aAtts = this._oAttsModel ? this._oAttsModel.getProperty("/items") : [];
 if (sCrId && aAtts.length) {
-var sAttsUrl = sServiceUrl.replace(//$/, "") + "/SaveCRAttachments";
+var sAttsUrl = sServiceUrl.replace(/\/$/, "") + "/SaveCRAttachments";
 fetch(sAttsUrl, {
 method : "POST",
 headers: { "Content-Type": "application/json", "Accept": "application/json" },
@@ -2976,8 +2972,7 @@ this.getOwnerComponent().getRouter().navTo("myRequests");
 .catch(function (oErr) {
 oRt.setProperty("/busy", false);
 MessageBox.error(
-"Could not save the change request:
-" +
+"Could not save the change request:\n" +
 ((oErr && oErr.message) ? oErr.message : String(oErr))
 );
 }.bind(this));
@@ -3031,7 +3026,7 @@ var bListValid = this._mValueListCache[sEntitySet].some(function (v) {
 return v.code === sTrimmed || (v.text && v.text.toLowerCase() === sTrimmed.toLowerCase());
 });
 if (!bListValid) {
-aErrors.push("\u2022 " + a.description + ": "" + sTrimmed + "" was not found in the " + a.description + " list. Use the search icon to pick a valid value.");
+aErrors.push("\u2022 " + a.description + ": \"" + sTrimmed + "\" was not found in the " + a.description + " list. Use the search icon to pick a valid value.");
 return;
 }
 }
