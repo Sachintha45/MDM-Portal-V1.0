@@ -16,6 +16,11 @@
 //                                        archiving flag + customer/supplier
 //                                        deletion indicators
 //    readBusinessPartner(bp, expand)     reads one BP with its child data
+//    searchBusinessPartners(criteria)    BP search for the Create BP screen
+//    readBusinessPartnerSummary(bp)      general data of one BP (extend pre-fill)
+//    readBPRoleInstances(bp, role)       company codes / sales areas /
+//                                        purchasing orgs a BP already has
+//                                        for one role (extend mode)
 //    buildBusinessPartnerPayload()       CR data → A_BusinessPartner payload
 //                                        (pure — no DB or HTTP access)
 //    extractS4Error(err)                 readable message from a failed S/4 call
@@ -24,7 +29,7 @@
 //  mdm-service.js) records the outcome on the change request.
 //
 //  The S/4 connection itself is configured in package.json under
-//  cds.requires.API_BUSINESS_PARTNER (destination + service path).
+//  cds.requires.API_BUSINESS_PARTNER (destination DOX_SBX + service path).
 // =============================================================================
 
 const cds = require('@sap/cds');
@@ -33,8 +38,16 @@ const { SELECT } = cds.ql;
 // Name of the cds.requires entry in package.json that points at S/4HANA.
 const S4_BP_SERVICE = 'API_BUSINESS_PARTNER';
 
+// Debug log of every S/4 request and failed response. Silent by default;
+// switch on with the environment variable DEBUG=s4 (or DEBUG=s4,remote to
+// also see CAP's own HTTP-level log incl. the resolved destination URL).
+const LOG = cds.log('s4');
+
 // BPCategory.category_id (upper-cased) → BusinessPartnerCategory
 const BP_CATEGORY = { PERSON: '1', ORGANIZATION: '2', GROUP: '3' };
+
+// BusinessPartnerCategory → BPCategory.category_id (the reverse, for reads)
+const BP_CATEGORY_ID = { 1: 'Person', 2: 'Organization', 3: 'Group' };
 
 // Segments that only ever produce ONE row per Business Partner — every
 // value mapped to one of these is merged into the same object regardless
@@ -617,6 +630,27 @@ function connectS4() {
     return cds.connect.to(S4_BP_SERVICE);
 }
 
+// Every S/4 call goes through here. With DEBUG=s4 the full request
+// (method, path, JSON body) is logged before sending, ready to paste into
+// /IWFND/GW_CLIENT in S/4 to reproduce a failure there; a failed call
+// additionally logs the HTTP status and S/4's raw error body.
+async function sendToS4(s4, oRequest) {
+    if (LOG._debug) {
+        LOG.debug(`→ ${oRequest.method} ${oRequest.path}` +
+            (oRequest.data ? `\n${JSON.stringify(oRequest.data, null, 2)}` : ''));
+    }
+    try {
+        return await s4.send(oRequest);
+    } catch (err) {
+        if (LOG._debug) {
+            const oResponse = (err && err.reason && err.reason.response) || (err && err.response) || {};
+            LOG.debug(`✗ ${oRequest.method} ${oRequest.path} → HTTP ${oResponse.status || '?'}`,
+                JSON.stringify(oResponse.body || oResponse.data || (err && err.message), null, 2));
+        }
+        throw err;
+    }
+}
+
 // OData V2 key predicate, e.g. A_CustomerCompany(Customer='17100001',CompanyCode='1710')
 function keyPath(sEntitySet, mKeys) {
     const sKeys = Object.keys(mKeys)
@@ -712,7 +746,7 @@ async function readBusinessPartner(sBpNumber, sExpand) {
     const sPath = keyPath('A_BusinessPartner', { BusinessPartner: sBpNumber }) +
         (sExpand ? `?$expand=${sExpand}` : '');
     try {
-        return await s4.send({ method: 'GET', path: sPath });
+        return await sendToS4(s4, { method: 'GET', path: sPath });
     } catch (err) {
         if (isNotFound(err)) {
             throw new Error(`Business Partner ${sBpNumber} was not found in S/4HANA.`);
@@ -731,7 +765,7 @@ function createStepRunner(s4) {
     const aDone = [];
     const run = async (sStep, oRequest) => {
         try {
-            await s4.send(oRequest);
+            await sendToS4(s4, oRequest);
             aDone.push(sStep);
         } catch (err) {
             throw new Error(
@@ -781,7 +815,7 @@ async function createBusinessPartner(cr) {
     }
 
     const s4 = await connectS4();
-    const oResponse = await s4.send({
+    const oResponse = await sendToS4(s4, {
         method: 'POST',
         path: '/A_BusinessPartner',
         data: payload
@@ -1094,11 +1128,205 @@ async function markBusinessPartnerForDeletion(cr) {
     return { bpNumber: sBp, warnings: aWarnings, changes: oRunner.done };
 }
 
+// =============================================================================
+//  BP SEARCH / DISPLAY  (Create BP screen, EXTEND / CHANGE / DELETE mode)
+// =============================================================================
+
+// Search results are capped — the dialog is a picker, not a report.
+const SEARCH_TOP = 50;
+// Country lives on the address, and OData V2 cannot filter a BP on a
+// property of an expanded collection — so a country search reads more BPs
+// and filters them here.
+const SEARCH_TOP_WITH_COUNTRY = 200;
+
+// OData V2 string literal: quotes doubled, then URL-encoded with the rest
+// of the $filter.
+function odataString(sValue) {
+    return `'${String(sValue).replace(/'/g, "''")}'`;
+}
+
+/**
+ * Searches Business Partners in S/4HANA.
+ *
+ * query matches the BP number exactly, or appears in the full name (as
+ * typed — Gateway's substringof is case-sensitive) or in search term 1
+ * (upper-cased, as S/4 stores it). BPs marked for deletion are left out.
+ *
+ * @param {object} oCriteria
+ * @param {string} [oCriteria.query]
+ * @param {string} [oCriteria.country]   ISO country of the BP's address
+ * @param {string} [oCriteria.category]  BPCategory.category_id (Person, Organization, Group)
+ * @returns {Promise<object[]>} rows shaped like ExistingBPResult in mdm-service.cds
+ */
+async function searchBusinessPartners(oCriteria) {
+    const sQuery    = String((oCriteria && oCriteria.query) || '').trim();
+    const sCountry  = String((oCriteria && oCriteria.country) || '').trim().toUpperCase();
+    const sCategory = String((oCriteria && oCriteria.category) || '').trim();
+
+    const aFilter = ['IsMarkedForArchiving eq false'];
+    if (sCategory) {
+        const sCode = BP_CATEGORY[sCategory.toUpperCase()];
+        if (!sCode) { return []; }
+        aFilter.push(`BusinessPartnerCategory eq ${odataString(sCode)}`);
+    }
+    if (sQuery) {
+        aFilter.push('(' + [
+            `BusinessPartner eq ${odataString(sQuery)}`,
+            `substringof(${odataString(sQuery)},BusinessPartnerFullName)`,
+            `substringof(${odataString(sQuery.toUpperCase())},SearchTerm1)`
+        ].join(' or ') + ')');
+    }
+
+    const sSelect = [
+        'BusinessPartner', 'BusinessPartnerFullName', 'BusinessPartnerName',
+        'BusinessPartnerCategory', 'BusinessPartnerGrouping', 'BusinessPartnerIsBlocked',
+        'to_BusinessPartnerAddress/Country', 'to_BusinessPartnerAddress/CityName'
+    ].join(',');
+    const iTop = sCountry ? SEARCH_TOP_WITH_COUNTRY : SEARCH_TOP;
+    const sPath = '/A_BusinessPartner' +
+        `?$filter=${encodeURIComponent(aFilter.join(' and '))}` +
+        `&$select=${sSelect}&$expand=to_BusinessPartnerAddress` +
+        `&$orderby=BusinessPartner&$top=${iTop}`;
+
+    const s4 = await connectS4();
+    const aBps = asArray(await sendToS4(s4, { method: 'GET', path: sPath }));
+
+    return aBps
+        .map((oBp) => {
+            const oAddress = asArray(oBp.to_BusinessPartnerAddress)[0] || {};
+            return {
+                bp_number    : oBp.BusinessPartner,
+                name         : oBp.BusinessPartnerFullName || oBp.BusinessPartnerName || oBp.BusinessPartner,
+                category     : BP_CATEGORY_ID[oBp.BusinessPartnerCategory] || oBp.BusinessPartnerCategory || '',
+                account_group: oBp.BusinessPartnerGrouping || '',
+                country      : oAddress.Country || '',
+                city         : oAddress.CityName || '',
+                status       : oBp.BusinessPartnerIsBlocked ? 'Blocked' : 'Active'
+            };
+        })
+        .filter((oRow) => !sCountry || oRow.country === sCountry)
+        .slice(0, SEARCH_TOP);
+}
+
+/**
+ * General data of one Business Partner, used to pre-fill the Create BP
+ * form when an existing BP is extended or changed.
+ *
+ * @returns {Promise<object>} shaped like GetExistingBPData's result in mdm-service.cds
+ */
+async function readBusinessPartnerSummary(sBpNumber) {
+    const oBp = await readBusinessPartner(sBpNumber, [
+        'to_BusinessPartnerRole',
+        'to_BusinessPartnerAddress/to_PhoneNumber',
+        'to_BusinessPartnerAddress/to_EmailAddress'
+    ].join(','));
+
+    // NAME1/NAME2 mean different properties per category — same mapping
+    // the payload builder uses, read in the other direction.
+    const aNameProps = NAME_BY_CATEGORY[oBp.BusinessPartnerCategory] || [];
+    const oAddress = asArray(oBp.to_BusinessPartnerAddress)[0] || {};
+    const oPhone = asArray(oAddress.to_PhoneNumber)[0] || {};
+    const oEmail = asArray(oAddress.to_EmailAddress)[0] || {};
+
+    return {
+        bp_number     : oBp.BusinessPartner,
+        name          : (aNameProps[0] && oBp[aNameProps[0]]) || oBp.BusinessPartnerFullName || oBp.BusinessPartner,
+        name2         : (aNameProps[1] && oBp[aNameProps[1]]) || '',
+        category      : BP_CATEGORY_ID[oBp.BusinessPartnerCategory] || oBp.BusinessPartnerCategory || '',
+        account_group : oBp.BusinessPartnerGrouping || '',
+        country       : oAddress.Country || '',
+        city          : oAddress.CityName || '',
+        street        : oAddress.StreetName || '',
+        telephone     : oPhone.PhoneNumber || '',
+        email         : oEmail.EmailAddress || '',
+        existing_roles: Array.from(new Set(asArray(oBp.to_BusinessPartnerRole).map((r) => r.BusinessPartnerRole)))
+    };
+}
+
+// The S/4 properties that identify one instance of a role-instance segment
+// — e.g. a sales area is sales org + distribution channel + division.
+const INSTANCE_KEY = {
+    company   : ['CompanyCode'],
+    sales     : ['SalesOrganization', 'DistributionChannel', 'Division'],
+    purchasing: ['PurchasingOrganization']
+};
+
+// S/4 rows of one role-instance segment on the customer or supplier side.
+const SEGMENT_ROWS = {
+    customer: { company: (c) => c.to_CustomerCompany, sales: (c) => c.to_CustomerSalesArea },
+    supplier: { company: (s) => s.to_SupplierCompany, purchasing: (s) => s.to_SupplierPurchasingOrg }
+};
+
+/**
+ * The combinations an existing Business Partner is already extended to for
+ * one role — one instance per company code, sales area or purchasing org
+ * in S/4HANA, with the role's portal fields filled from that S/4 row.
+ *
+ * Which S/4 segment(s) a role covers is derived from the role's own fields
+ * (BPRoleField + BPRolePrereqField) through FIELD_MAP, so a role whose
+ * fields include VKORG lists sales areas, one with BUKRS company codes.
+ *
+ * @returns {Promise<object[]>} shaped like BPRoleInstanceResult in mdm-service.cds
+ */
+async function readBPRoleInstances(sBpNumber, sRoleId) {
+    const oRole = await SELECT.one.from('mdm.portal.BPRole').where({ role_id: sRoleId });
+    const aRoleFields = await SELECT.from('mdm.portal.BPRoleField').columns('field_field_id').where({ role_role_id: sRoleId });
+    const aPrereqFields = await SELECT.from('mdm.portal.BPRolePrereqField').columns('field_field_id').where({ role_role_id: sRoleId });
+    const aFieldIds = Array.from(new Set(aPrereqFields.concat(aRoleFields).map((f) => f.field_field_id).filter(Boolean)));
+    if (!aFieldIds.length) { return []; }
+
+    const aFieldMaster = await SELECT.from('mdm.portal.FieldMaster').where({ field_id: { in: aFieldIds } });
+    const mFieldMeta = {};
+    aFieldMaster.forEach((f) => { mFieldMeta[f.field_id] = f; });
+
+    const oBp = await readBusinessPartner(sBpNumber, BP_EXPAND_CUSTOMER_SUPPLIER);
+    const sSide = sideOfRole(sRoleId, oRole ? { [sRoleId]: oRole } : {}, null);
+    const oPartner = sSide === 'supplier' ? oBp.to_Supplier : oBp.to_Customer;
+    if (!oPartner) { return []; }
+
+    // field_id → S/4 property, grouped by the segment it belongs to
+    const mSegmentFields = {};
+    aFieldIds.forEach((sFieldId) => {
+        const aTarget = resolveTarget(mFieldMeta[sFieldId], { field_field_id: sFieldId }, oBp.BusinessPartnerCategory);
+        if (!aTarget || !SEGMENT_ROWS[sSide][aTarget[0]]) { return; }
+        (mSegmentFields[aTarget[0]] = mSegmentFields[aTarget[0]] || []).push({ fieldId: sFieldId, prop: aTarget[1] });
+    });
+
+    const aInstances = [];
+    Object.keys(mSegmentFields).forEach((sSegment) => {
+        const aFields = mSegmentFields[sSegment];
+        // A role that captures none of the segment's key fields (e.g. only
+        // a currency) cannot tell its instances apart — not listed.
+        if (!aFields.some((f) => INSTANCE_KEY[sSegment].includes(f.prop))) { return; }
+        asArray(SEGMENT_ROWS[sSide][sSegment](oPartner)).forEach((oRow) => {
+            const mValues = {};
+            aFields.forEach((f) => {
+                const vValue = oRow[f.prop];
+                mValues[f.fieldId] = vValue === null || vValue === undefined ? '' : String(vValue);
+            });
+            const mKeys = {};
+            aFields.filter((f) => INSTANCE_KEY[sSegment].includes(f.prop))
+                .forEach((f) => { mKeys[f.fieldId] = mValues[f.fieldId]; });
+
+            aInstances.push({
+                instance_no : aInstances.length + 1,
+                key_label   : INSTANCE_KEY[sSegment].map((sProp) => oRow[sProp] || '—').join(' / '),
+                key_values  : JSON.stringify(mKeys),
+                field_values: JSON.stringify(mValues)
+            });
+        });
+    });
+    return aInstances;
+}
+
 module.exports = {
     createBusinessPartner,
     updateBusinessPartner,
     markBusinessPartnerForDeletion,
     readBusinessPartner,
+    searchBusinessPartners,
+    readBusinessPartnerSummary,
+    readBPRoleInstances,
     buildBusinessPartnerPayload,
     extractS4Error,
     FIELD_MAP

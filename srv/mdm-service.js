@@ -1720,189 +1720,46 @@ class MDMPortalService extends cds.ApplicationService {
             }
         });
 
-        /**
-         * SearchExistingBPs — lightweight search across posted CRHeaders that
-         * have a reference_object_no (= posted BP number).  In a real landscape
-         * this would call an SAP OData / RFC to search BP master data.
-         * Here we query CRHeader rows whose status = 'POSTED' as a proxy.
-         */
+        // ─────────────────────────────────────────────────────────────────
+        //  EXISTING BP SEARCH / DISPLAY — read live from S/4HANA through
+        //  integration-service.js (destination DOX_SBX). A failed S/4 call
+        //  is reported as 502 with S/4's own message; the Create BP screen
+        //  treats all three as non-fatal.
+        // ─────────────────────────────────────────────────────────────────
+
         this.on('SearchExistingBPs', async (req) => {
             const { query = '', country = '', category = '' } = req.data;
-            const db = cds.db;
-
-            // Pull every posted CR that has a BP number
-            let rows = await db.run(
-                SELECT.from('mdm.portal.CRHeader')
-                    .columns('reference_object_no', 'bp_category_category_id',
-                             'account_group_account_group_id', 'requester')
-                    .where({ status: 'POSTED' })
-                    .and('reference_object_no IS NOT NULL')
-            );
-
-            // De-duplicate by BP number (keep first occurrence)
-            const seen = new Set();
-            const unique = [];
-            for (const r of rows) {
-                const bp = r.reference_object_no;
-                if (!seen.has(bp)) { seen.add(bp); unique.push(r); }
+            try {
+                return await integration.searchBusinessPartners({ query, country, category });
+            } catch (err) {
+                const sReason = integration.extractS4Error(err);
+                console.error('[s4] SearchExistingBPs failed:', sReason);
+                return req.error(502, `Business Partner search in S/4HANA failed: ${sReason}`);
             }
-
-            // Client-side filter (small dataset in dev/sandbox)
-            const q = query.toLowerCase();
-            const filtered = unique.filter(r => {
-                if (q && !r.reference_object_no.toLowerCase().includes(q) &&
-                    !(r.requester || '').toLowerCase().includes(q)) { return false; }
-                if (country && !(r.requester || '').toLowerCase().includes(country.toLowerCase())) {
-                    // country filter is best-effort without a proper BP table
-                }
-                if (category && r.bp_category_category_id !== category) { return false; }
-                return true;
-            });
-
-            return filtered.map(r => ({
-                bp_number    : r.reference_object_no,
-                name         : r.requester || r.reference_object_no,
-                category     : r.bp_category_category_id || '',
-                account_group: r.account_group_account_group_id || '',
-                country      : '',
-                city         : '',
-                status       : 'Active'
-            }));
         });
 
-        /**
-         * GetExistingBPData — return general header data for one BP.
-         * In production this calls the SAP BP OData API.  In the sandbox we
-         * reconstruct it from the latest POSTED CRFieldValue rows for that BP.
-         */
         this.on('GetExistingBPData', async (req) => {
             const { bp_number } = req.data;
             if (!bp_number) return req.error(400, 'bp_number is required');
-            const db = cds.db;
-
-            // Find the CR that posted this BP number
-            const cr = await db.run(
-                SELECT.one.from('mdm.portal.CRHeader')
-                    .where({ reference_object_no: bp_number, status: 'POSTED' })
-            );
-
-            if (!cr) {
-                // Return a minimal stub so the UI can still work
-                return {
-                    bp_number,
-                    name         : bp_number,
-                    name2        : '',
-                    category     : '',
-                    account_group: '',
-                    country      : '',
-                    city         : '',
-                    street       : '',
-                    telephone    : '',
-                    email        : '',
-                    existing_roles: []
-                };
+            try {
+                return await integration.readBusinessPartnerSummary(bp_number);
+            } catch (err) {
+                const sReason = integration.extractS4Error(err);
+                console.error(`[s4] GetExistingBPData ${bp_number} failed:`, sReason);
+                return req.error(502, `Reading Business Partner ${bp_number} from S/4HANA failed: ${sReason}`);
             }
-
-            // Read field values from the posting CR
-            const fvRows = await db.run(
-                SELECT.from('mdm.portal.CRFieldValue')
-                    .where({ cr_id: cr.cr_id })
-            );
-            const fv = {};
-            fvRows.forEach(r => { fv[r.field_field_id] = r.new_value || ''; });
-
-            // Read which roles that CR covered
-            const roleRows = await db.run(
-                SELECT.from('mdm.portal.CRBPRole')
-                    .columns('role_role_id')
-                    .where({ cr_id: cr.cr_id })
-            );
-
-            return {
-                bp_number,
-                name         : fv['NAME1'] || bp_number,
-                name2        : fv['NAME2'] || '',
-                category     : cr.bp_category_category_id || '',
-                account_group: cr.account_group_account_group_id || '',
-                country      : fv['COUNTRY'] || '',
-                city         : fv['CITY'] || '',
-                street       : fv['STREET'] || '',
-                telephone    : fv['TELEPHONE'] || '',
-                email        : fv['EMAIL'] || '',
-                existing_roles: roleRows.map(r => r.role_role_id)
-            };
         });
 
-        /**
-         * GetBPRoleInstances — returns each saved prerequisite-field combination
-         * for a given BP number + role.  In production this reads from the SAP
-         * company-code / sales-area extension tables.  In the sandbox we read the
-         * CRFieldValue rows grouped by instance_no for matching POSTED CRs.
-         */
         this.on('GetBPRoleInstances', async (req) => {
             const { bp_number, role_id } = req.data;
             if (!bp_number || !role_id) return req.error(400, 'bp_number and role_id are required');
-            const db = cds.db;
-
-            // Find all POSTED CRs that covered this BP number and this role
-            const crRows = await db.run(
-                SELECT.from('mdm.portal.CRHeader')
-                    .where({ reference_object_no: bp_number, status: 'POSTED' })
-            );
-            if (!crRows.length) return [];
-
-            const crIds = crRows.map(r => r.cr_id);
-
-            // Verify those CRs actually included this role
-            const roleMatches = await db.run(
-                SELECT.from('mdm.portal.CRBPRole')
-                    .where({ role_role_id: role_id })
-                    .and({ cr_id: { in: crIds } })
-            );
-            const matchedCrIds = roleMatches.map(r => r.cr_id);
-            if (!matchedCrIds.length) return [];
-
-            // Fetch prereq field definitions for this role (to know the key fields)
-            const prereqDefs = await db.run(
-                SELECT.from('mdm.portal.BPRolePrereqField')
-                    .columns('field_field_id', 'sequence')
-                    .where({ role_role_id: role_id })
-                    .orderBy('sequence')
-            );
-            const prereqFieldIds = prereqDefs.map(p => p.field_field_id);
-
-            // Fetch all field values for these CRs, grouped by (cr_id, instance_no)
-            const fvRows = await db.run(
-                SELECT.from('mdm.portal.CRFieldValue')
-                    .where({ cr_id: { in: matchedCrIds } })
-                    .and({ role_id })
-                    .orderBy('cr_id', 'instance_no', 'field_field_id')
-            );
-
-            // Build one instance per unique (cr_id, instance_no) combination
-            const instanceMap = new Map();
-            fvRows.forEach(fv => {
-                const key = `${fv.cr_id}::${fv.instance_no}`;
-                if (!instanceMap.has(key)) {
-                    instanceMap.set(key, { cr_id: fv.cr_id, instance_no: fv.instance_no, fields: {} });
-                }
-                instanceMap.get(key).fields[fv.field_field_id] = fv.new_value || '';
-            });
-
-            const instances = Array.from(instanceMap.values());
-            let instanceNo = 1;
-
-            return instances.map(inst => {
-                const keyObj = {};
-                prereqFieldIds.forEach(fid => { keyObj[fid] = inst.fields[fid] || ''; });
-                const keyLabel = prereqFieldIds.map(fid => inst.fields[fid] || '—').join(' / ');
-                return {
-                    instance_no : instanceNo++,
-                    key_label   : keyLabel,
-                    key_values  : JSON.stringify(keyObj),
-                    field_values: JSON.stringify(inst.fields)
-                };
-            });
+            try {
+                return await integration.readBPRoleInstances(bp_number, role_id);
+            } catch (err) {
+                const sReason = integration.extractS4Error(err);
+                console.error(`[s4] GetBPRoleInstances ${bp_number}/${role_id} failed:`, sReason);
+                return req.error(502, `Reading role ${role_id} data of Business Partner ${bp_number} from S/4HANA failed: ${sReason}`);
+            }
         });
 
         await super.init();
