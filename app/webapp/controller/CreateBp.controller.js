@@ -534,7 +534,7 @@ sap.ui.define([
         _openBpSearchDialog: function () {
             var oView = this.getView();
             if (!this._oBpSearchDialog) {
-                this._oBpSearchModel = new JSONModel({ items: [], busy: false, query: "", country: "", category: "" });
+                this._oBpSearchModel = new JSONModel({ items: [], busy: false, query: "", country: "", category: "", noDataText: "" });
                 this._oBpSearchDialog = new sap.m.Dialog({
                     title       : "Search — Existing Business Partner",
                     contentWidth: "50rem",
@@ -556,7 +556,7 @@ sap.ui.define([
                             ]}),
                             new Table({
                                 id         : "bpSearchTable",
-                                noDataText : "No matching business partners found.",
+                                noDataText : "{bpSearch>/noDataText}",
                                 busy       : "{bpSearch>/busy}",
                                 columns    : [
                                     new Column({ header: new Label({ text: "BP Number" }) }),
@@ -591,26 +591,49 @@ sap.ui.define([
             this._oBpSearchModel.setProperty("/items", []);
             this._oBpSearchModel.setProperty("/query", "");
             this._oBpSearchModel.setProperty("/country", "");
+            this._oBpSearchModel.setProperty("/noDataText", "Enter a BP number or name and press Search to find it in SAP.");
             this._oBpSearchDialog.open();
         },
 
-        _refreshBpSearch: function () {
+        // Searches Business Partners in S/4HANA (SearchExistingBPs reads them
+        // live through the DOX_SBX destination). Typing waits for a short
+        // pause before searching so S/4 isn't hit on every keystroke; the
+        // Search button searches straight away.
+        _refreshBpSearch: function (oEvent) {
+            clearTimeout(this._iBpSearchTimer);
+            if (oEvent && oEvent.getId() === "liveChange") {
+                this._iBpSearchTimer = setTimeout(this._runBpSearch.bind(this), 400);
+            } else {
+                this._runBpSearch();
+            }
+        },
+
+        _runBpSearch: function () {
             var oModel   = this.getOwnerComponent().getModel();
             var sQuery   = this._oBpSearchModel.getProperty("/query")   || "";
             var sCountry = this._oBpSearchModel.getProperty("/country") || "";
+            // Only the newest search may fill the list — an older, slower
+            // S/4 response must not overwrite it.
+            var iRequest = this._iBpSearchRequest = (this._iBpSearchRequest || 0) + 1;
             this._oBpSearchModel.setProperty("/busy", true);
-            oModel.bindContext("/SearchExistingBPs(...)")
+            var oBinding = oModel.bindContext("/SearchExistingBPs(...)")
                 .setParameter("query",   sQuery)
                 .setParameter("country", sCountry)
-                .setParameter("category","")
-                .execute()
-                .then(function (oCtx) {
-                    var aItems = oCtx ? (Array.isArray(oCtx) ? oCtx : []) : [];
-                    this._oBpSearchModel.setProperty("/items", aItems);
+                .setParameter("category","");
+            // execute() resolves without the result for a function that
+            // returns a collection — it is read from the bound context.
+            oBinding.execute()
+                .then(function () {
+                    if (iRequest !== this._iBpSearchRequest) return;
+                    var oResult = oBinding.getBoundContext().getObject() || {};
+                    this._oBpSearchModel.setProperty("/items", oResult.value || []);
+                    this._oBpSearchModel.setProperty("/noDataText", "No matching business partners found in SAP.");
                 }.bind(this))
-                .catch(function () {
-                    // Fallback: return empty list rather than crash
+                .catch(function (oErr) {
+                    if (iRequest !== this._iBpSearchRequest) return;
                     this._oBpSearchModel.setProperty("/items", []);
+                    this._oBpSearchModel.setProperty("/noDataText",
+                        "SAP search failed: " + ((oErr && oErr.message) || "unknown error"));
                 }.bind(this))
                 .finally(function () {
                     this._oBpSearchModel.setProperty("/busy", false);
@@ -648,11 +671,15 @@ sap.ui.define([
 
         _fetchExistingBpData: function (sBpNum) {
             var oModel = this.getOwnerComponent().getModel();
-            oModel.bindContext("/GetExistingBPData(...)")
-                .setParameter("bp_number", sBpNum)
-                .execute()
-                .then(function (oResult) {
+            var oBinding = oModel.bindContext("/GetExistingBPData(...)")
+                .setParameter("bp_number", sBpNum);
+            // The result is read from the bound context — execute() itself
+            // resolves without it (see _runBpSearch).
+            oBinding.execute()
+                .then(function () {
+                    var oResult = oBinding.getBoundContext().getObject();
                     if (!oResult) return;
+                    oResult = Object.assign({}, oResult);
                     this._oRt.setProperty("/extendBpData", oResult);
                     // Pre-fill form values with existing BP data
                     this._prefillExtendValues(oResult);
@@ -1527,12 +1554,15 @@ sap.ui.define([
             var oBpData = this._oRt.getProperty("/extendBpData");
             if (!oBpData || !oBpData.bp_number) return;
 
-            oModel.bindContext("/GetBPRoleInstances(...)")
+            var oBinding = oModel.bindContext("/GetBPRoleInstances(...)")
                 .setParameter("bp_number", oBpData.bp_number)
-                .setParameter("role_id",   sRoleId)
-                .execute()
-                .then(function (aInstances) {
-                    var aInst = Array.isArray(aInstances) ? aInstances : [];
+                .setParameter("role_id",   sRoleId);
+            // The result is read from the bound context — execute() itself
+            // resolves without it (see _runBpSearch).
+            oBinding.execute()
+                .then(function () {
+                    var oResult = oBinding.getBoundContext().getObject() || {};
+                    var aInst = Array.isArray(oResult.value) ? oResult.value : [];
                     this._mRoleInstances = this._mRoleInstances || {};
                     this._mRoleInstances[sRoleId] = aInst;
 
