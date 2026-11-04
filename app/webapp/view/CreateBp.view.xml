@@ -56,7 +56,7 @@
 
                     <VBox width="42%">
                         <Label text="Existing Business Partner" labelFor="inExtendBp"/>
-                        <Input id="inExtendBp" width="100%" placeholder="Search an existing BP to extend…"
+                        <Input id="inExtendBp" width="100%" placeholder="Search an existing BP to change or extend…"
                                showValueHelp="true" valueHelpRequest=".onExtendSearch"
                                value="{rt>/extendBp}"/>
                     </VBox>
@@ -69,7 +69,7 @@
                               showIcon="true"
                               showCloseButton="true"
                               class="sapUiSmallMarginTop"
-                              text="{= 'Extending BP: ' + ${rt>/extendBp} + '. Existing field values are pre-filled and editable. Prerequisite fields show existing extensions.'}"/>
+                              text="{= 'Existing BP: ' + ${rt>/extendBp} + '. Its current S/4HANA data is pre-filled — change any field and submit to update the BP in S/4HANA. Add a role or a new combination under Prerequisites to extend it.'}"/>
 
                 <!-- ── BP Roles + Account Group block ─────────────────── -->
                 <VBox id="rolesBlock" visible="{rt>/started}" class="sapUiSmallMarginTop">

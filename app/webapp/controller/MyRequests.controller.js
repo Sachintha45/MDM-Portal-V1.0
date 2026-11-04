@@ -114,6 +114,15 @@ sap.ui.define([
             });
         },
 
+        // Shows why S/4HANA rejected the posting of a POSTING_FAILED request.
+        onPostingErrorPress: function (oEvent) {
+            var oCtx = oEvent.getSource().getBindingContext();
+            MessageBox.error(
+                "S/4HANA rejected the Business Partner posting:\n\n" + (oCtx.getProperty("posting_error") || ""),
+                { title: "Posting Failed — " + oCtx.getProperty("cr_id") }
+            );
+        },
+
         onCreateBP: function () {
             this.getOwnerComponent().getRouter().navTo("createBP");
         },

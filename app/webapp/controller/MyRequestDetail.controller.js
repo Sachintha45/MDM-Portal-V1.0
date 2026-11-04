@@ -50,6 +50,7 @@ sap.ui.define([
                 requester   : "",
                 createdAt   : "",
                 bpNumber    : "",
+                postingError: "",
                 subtitle    : "",
                 roleCount   : 0,
                 activeRole  : ""
@@ -131,6 +132,7 @@ sap.ui.define([
                 oVm.setProperty("/priority",     oData.priority     || "NORMAL");
                 oVm.setProperty("/requester",    oData.requester    || "\u2014");
                 oVm.setProperty("/bpNumber",     oData.posted_object_no || "\u2014");
+                oVm.setProperty("/postingError", oData.posting_error || "");
                 oVm.setProperty("/createdAt",    oData.createdAt
                     ? new Date(oData.createdAt).toLocaleString() : "\u2014");
                 oVm.setProperty("/subtitle",
@@ -414,6 +416,7 @@ sap.ui.define([
             if (oRsBox) { oRsBox.destroyItems(); }
             this._oViewModel.setProperty("/activeRole", "");
             this._oViewModel.setProperty("/numberRange", "");
+            this._oViewModel.setProperty("/postingError", "");
         },
 
         _renderAll: function () {

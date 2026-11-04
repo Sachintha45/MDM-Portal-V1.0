@@ -220,6 +220,9 @@ service MDMPortalService {
         telephone    : String(30);
         email        : String(100);
         existing_roles : array of String;   // role_ids already assigned to this BP
+        // JSON { values: {field_id: value}, grids: {field_id: [{column: value}]} }
+        // — every general-data field of the BP, to pre-fill the form
+        field_values   : LargeString;
     };
 
     // =========================================================================

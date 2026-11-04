@@ -76,7 +76,7 @@
                            path: '/ChangeRequests',
                            sorter: { path: 'createdAt', descending: true },
                            parameters: {
-                               $select: 'cr_id,request_type,scenario_code,bp_category_category_id,account_group_account_group_id,status,requester,priority,createdAt,submitted_at,posted_object_no'
+                               $select: 'cr_id,request_type,scenario_code,bp_category_category_id,account_group_account_group_id,status,requester,priority,createdAt,submitted_at,posted_object_no,posting_error'
                            }
                        }">
                     <columns>
@@ -107,14 +107,21 @@
                                            ${request_type} === 'EXTEND' ? 'Warning' : 'None'}"/>
                                 <Text text="{bp_category_category_id}" wrapping="false"/>
                                 <Text text="{account_group_account_group_id}" wrapping="false"/>
-                                <ObjectStatus
-                                    text="{status}"
-                                    state="{= ${status} === 'DRAFT'       ? 'None'    :
-                                           ${status} === 'IN_APPROVAL' ? 'Warning' :
-                                           ${status} === 'APPROVED'    ? 'Success' :
-                                           ${status} === 'POSTED'      ? 'Success' :
-                                           ${status} === 'REJECTED'    ? 'Error'   :
-                                           ${status} === 'POSTING_FAILED' ? 'Error' : 'None'}"/>
+                                <VBox>
+                                    <ObjectStatus
+                                        text="{status}"
+                                        state="{= ${status} === 'DRAFT'       ? 'None'    :
+                                               ${status} === 'IN_APPROVAL' ? 'Warning' :
+                                               ${status} === 'APPROVED'    ? 'Success' :
+                                               ${status} === 'POSTED'      ? 'Success' :
+                                               ${status} === 'REJECTED'    ? 'Error'   :
+                                               ${status} === 'POSTING_FAILED' ? 'Error' : 'None'}"/>
+                                    <!-- Why S/4HANA rejected the posting — full text in a dialog -->
+                                    <Link text="View error"
+                                          visible="{= ${status} === 'POSTING_FAILED' &amp;&amp; !!${posting_error}}"
+                                          tooltip="{posting_error}"
+                                          press=".onPostingErrorPress"/>
+                                </VBox>
                                 <Text text="{priority}" wrapping="false"/>
                                 <Text text="{requester}" wrapping="false"/>
                                 <Text text="{path: 'createdAt', formatter: '.formatDateTime'}" wrapping="false"/>

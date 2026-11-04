@@ -396,6 +396,9 @@ entity CRHeader : managed {
         strategy            : Association to ReleaseStrategy;
         posted_object_no    : String(20);
         posted_at           : Timestamp;
+        // Reason of the last failed S/4HANA posting (status POSTING_FAILED),
+        // shown to the requester; cleared again once posting succeeds.
+        posting_error       : String(5000);
         submitted_at        : Timestamp;
         bp_roles            : Composition of many CRBPRole on bp_roles.cr = $self;
         field_values        : Composition of many CRFieldValue on field_values.cr = $self;

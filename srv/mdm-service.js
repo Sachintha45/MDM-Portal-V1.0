@@ -874,7 +874,10 @@ class MDMPortalService extends cds.ApplicationService {
                 console.error(`[s4] Posting CR ${crId} to S/4HANA failed:`, sReason);
 
                 try {
-                    await db.update('mdm.portal.CRHeader').where({ cr_id: crId }).set({ status: 'POSTING_FAILED' });
+                    await db.update('mdm.portal.CRHeader').where({ cr_id: crId }).set({
+                        status: 'POSTING_FAILED',
+                        posting_error: String(sReason).slice(0, 5000)
+                    });
                     await this.createAuditLog('CR_HEADER', crId, 'POST', actorId, null,
                         { status: 'POSTING_FAILED', error: sReason });
                     if (cr && cr.requester) {
@@ -910,7 +913,8 @@ class MDMPortalService extends cds.ApplicationService {
                 await db.update('mdm.portal.CRHeader').where({ cr_id: crId }).set({
                     status: 'POSTED',
                     posted_object_no: sBpNumber,
-                    posted_at: new Date()
+                    posted_at: new Date(),
+                    posting_error: null
                 });
             } catch (updateError) {
                 console.error(
@@ -1606,15 +1610,18 @@ class MDMPortalService extends cds.ApplicationService {
 
                     // ── UPDATE header ────────────────────────────────────
                     await UPDATE('mdm.portal.CRHeader').where({ cr_id: sCrId }).set({
-                        bp_category_category_id: bp_category || null,
-                        account_group_account_group_id: account_group || null,
-                        reference_object_no: reference_object_no || null,
-                        business_justification: business_justification || null,
-                        priority: sPriority,
-                        status: sStatus,
-                        submitted_at: submit ? dNow : null,
-                        modifiedAt: dNow,
-                        modifiedBy: actor
+                        // A draft on an existing BP turns from CHANGE into
+                        // EXTEND (or back) as roles/combinations are added
+                        request_type                   : request_type || existing.request_type,
+                        bp_category_category_id        : bp_category   || null,
+                        account_group_account_group_id : account_group || null,
+                        reference_object_no            : reference_object_no || null,
+                        business_justification         : business_justification || null,
+                        priority                        : sPriority,
+                        status                         : sStatus,
+                        submitted_at                   : submit ? dNow : null,
+                        modifiedAt                      : dNow,
+                        modifiedBy                      : actor
                     });
 
                     // ── Delete old child rows and re-insert fresh ─────────

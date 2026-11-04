@@ -21,6 +21,12 @@
 
                 <core:HTML content="&lt;hr style='border:none;border-top:1px solid var(--sapGroup_TitleBorderColor);margin:0 0 0.75rem 0;width:100%'/&gt;"/>
 
+                <!-- Why S/4HANA rejected the posting (status POSTING_FAILED) -->
+                <MessageStrip type="Error" showIcon="true" showCloseButton="false"
+                              visible="{= ${view>/status} === 'POSTING_FAILED' &amp;&amp; !!${view>/postingError}}"
+                              text="Posting to S/4HANA failed: {view>/postingError}"
+                              class="sapUiSmallMarginBottom"/>
+
                 <!-- ── Top-level tabs: what the requester filled in vs. who's
                      reviewing it and where it stands ─────────────────────── -->
                 <IconTabBar id="topLevelTabs" expanded="true"
