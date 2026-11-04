@@ -1340,8 +1340,18 @@ async function mapBusinessPartnerToFieldValues(oBp) {
     const isGeneral = (aTarget) => aTarget &&
         (SINGLE_ROW_SEGMENTS.includes(aTarget[0]) || GENERAL_ROWS[aTarget[0]] || aTarget[0] === 'kna1Tax');
 
+    // Role fields without a Field Master record (e.g. NAME1, CITY) still
+    // resolve through their own id in FIELD_MAP when posted (resolveTarget's
+    // last fallback) — so they're pre-filled the same way.
+    const oKnown = new Set(aFields.map((oField) => oField.field_id));
+    const aPlainFields = aFields.filter((oField) => !oField.grid).concat(
+        Object.keys(FIELD_MAP)
+            .filter((sKey) => !sKey.includes('.') && !oKnown.has(sKey))
+            .map((sKey) => ({ field_id: sKey }))
+    );
+
     const mValues = {};
-    aFields.filter((oField) => !oField.grid).forEach((oField) => {
+    aPlainFields.forEach((oField) => {
         const aTarget = resolveTarget(oField, { field_field_id: oField.field_id }, sCategory);
         if (!isGeneral(aTarget)) { return; }
 
