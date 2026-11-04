@@ -744,16 +744,55 @@ const BP_EXPAND_CUSTOMER_SUPPLIER = [
  */
 async function readBusinessPartner(sBpNumber, sExpand) {
     const s4 = await connectS4();
-    const sPath = keyPath('A_BusinessPartner', { BusinessPartner: sBpNumber }) +
-        (sExpand ? `?$expand=${sExpand}` : '');
-    try {
-        return await sendToS4(s4, { method: 'GET', path: sPath });
-    } catch (err) {
-        if (isNotFound(err)) {
-            throw new Error(`Business Partner ${sBpNumber} was not found in S/4HANA.`);
+    let aExpand = (sExpand ? sExpand.split(',') : []).filter((s) => !isUnsupportedNav(s));
+    for (;;) {
+        const sPath = keyPath('A_BusinessPartner', { BusinessPartner: sBpNumber }) +
+            (aExpand.length ? `?$expand=${aExpand.join(',')}` : '');
+        try {
+            return await sendToS4(s4, { method: 'GET', path: sPath });
+        } catch (err) {
+            // Older API_BUSINESS_PARTNER versions lack some navigations
+            // (e.g. to_BuPaIndustry) and answer 404 "Resource not found for
+            // the segment '…'" — drop that one and read the rest.
+            const sSegment = unsupportedSegment(err);
+            if (sSegment && aExpand.some((s) => s.split('/').includes(sSegment))) {
+                UNSUPPORTED_NAVS.add(sSegment);
+                console.warn(`[s4] API_BUSINESS_PARTNER has no navigation ${sSegment} — read without it`);
+                aExpand = aExpand.filter((s) => !s.split('/').includes(sSegment));
+                continue;
+            }
+            if (isNotFound(err)) {
+                throw new Error(`Business Partner ${sBpNumber} was not found in S/4HANA.`);
+            }
+            throw err;
         }
-        throw err;
     }
+}
+
+// Removes payload parts for navigations the S/4 system doesn't offer
+// (see UNSUPPORTED_NAVS), with a warning instead of a failed posting.
+function dropUnsupportedNavs(oPayload, aWarnings) {
+    Object.keys(oPayload).forEach((sKey) => {
+        if (UNSUPPORTED_NAVS.has(sKey)) {
+            aWarnings.push(`${sKey} data was not sent — this S/4HANA system's API_BUSINESS_PARTNER does not support it.`);
+            delete oPayload[sKey];
+        }
+    });
+}
+
+// Navigation properties the connected S/4 system's API_BUSINESS_PARTNER
+// doesn't offer — learnt from its 404 answers, so each is tried only once.
+const UNSUPPORTED_NAVS = new Set();
+
+function isUnsupportedNav(sExpandPath) {
+    return sExpandPath.split('/').some((s) => UNSUPPORTED_NAVS.has(s));
+}
+
+// The segment name of a 404 "Resource not found for the segment 'X'".
+function unsupportedSegment(err) {
+    if (!isNotFound(err)) { return null; }
+    const aMatch = /segment '([^']+)'/.exec(extractS4Error(err));
+    return aMatch ? aMatch[1] : null;
 }
 
 // Runs a sequence of S/4 write calls one by one, remembering what already
@@ -810,6 +849,7 @@ async function patchChanges(oRunner, sStep, oWant, oHave, sFallbackPath) {
  */
 async function createBusinessPartner(cr) {
     const { payload, warnings } = buildBusinessPartnerPayload(await loadCrData(cr));
+    dropUnsupportedNavs(payload, warnings);
 
     if (warnings.length) {
         console.warn(`[s4] CR ${cr.cr_id} — values not sent to S/4HANA:`, warnings);
@@ -868,6 +908,8 @@ async function updateBusinessPartner(cr) {
         mode: 'update',
         categoryCode: oBp.BusinessPartnerCategory
     }));
+    // readBusinessPartner above has learnt which navigations S/4 lacks
+    dropUnsupportedNavs(payload, warnings);
 
     const oRunner = createStepRunner(s4);
     const sBpPath = keyPath('A_BusinessPartner', { BusinessPartner: sBp });
