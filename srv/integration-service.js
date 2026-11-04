@@ -17,7 +17,8 @@
 //                                        deletion indicators
 //    readBusinessPartner(bp, expand)     reads one BP with its child data
 //    searchBusinessPartners(criteria)    BP search for the Create BP screen
-//    readBusinessPartnerSummary(bp)      general data of one BP (extend pre-fill)
+//    readBusinessPartnerSummary(bp)      general data of one BP, incl. every
+//                                        mapped field value (change/extend pre-fill)
 //    readBPRoleInstances(bp, role)       company codes / sales areas /
 //                                        purchasing orgs a BP already has
 //                                        for one role (extend mode)
@@ -1208,6 +1209,141 @@ async function searchBusinessPartners(oCriteria) {
         .slice(0, SEARCH_TOP);
 }
 
+// Every child entity a BP's general (non role-instance) data lives in —
+// read to pre-fill the Create BP form when an existing BP is changed.
+const BP_EXPAND_GENERAL = [
+    'to_BusinessPartnerRole',
+    'to_BusinessPartnerAddress/to_PhoneNumber',
+    'to_BusinessPartnerAddress/to_MobilePhoneNumber',
+    'to_BusinessPartnerAddress/to_FaxNumber',
+    'to_BusinessPartnerAddress/to_EmailAddress',
+    'to_BusinessPartnerTax',
+    'to_BusinessPartnerBank',
+    'to_BuPaIdentification',
+    'to_BuPaIndustry'
+].join(',');
+
+// S/4 rows of the multi-row general segments — one per tax number,
+// identification, industry or bank account.
+const GENERAL_ROWS = {
+    tax     : (oBp) => asArray(oBp.to_BusinessPartnerTax),
+    ident   : (oBp) => asArray(oBp.to_BuPaIdentification),
+    industry: (oBp) => asArray(oBp.to_BuPaIndustry),
+    bank    : (oBp) => asArray(oBp.to_BusinessPartnerBank)
+};
+
+// The S/4 row a single-row segment's properties are read from.
+function singleRow(oBp, sSegment) {
+    const oAddress = asArray(oBp.to_BusinessPartnerAddress)[0] || {};
+    switch (sSegment) {
+        case 'header' : return oBp;
+        case 'address': return oAddress;
+        case 'phone'  : return asArray(oAddress.to_PhoneNumber)[0] || {};
+        case 'mobile' : return asArray(oAddress.to_MobilePhoneNumber)[0] || {};
+        case 'fax'    : return asArray(oAddress.to_FaxNumber)[0] || {};
+        case 'email'  : return asArray(oAddress.to_EmailAddress)[0] || {};
+        default       : return {};
+    }
+}
+
+// Edm.DateTime as S/4 / CAP hand it over ("/Date(ms)/", ISO string or a
+// Date) → the YYYY-MM-DD the portal's date pickers use (see toV2Date).
+function fromV2Date(vValue) {
+    if (vValue instanceof Date) {
+        return Number.isNaN(vValue.getTime()) ? '' : vValue.toISOString().slice(0, 10);
+    }
+    const sValue = String(vValue);
+    const aMs = /\/Date\((-?\d+)/.exec(sValue);
+    if (aMs) { return new Date(Number(aMs[1])).toISOString().slice(0, 10); }
+    const aIso = /^(\d{4})-?(\d{2})-?(\d{2})/.exec(sValue);
+    return aIso ? `${aIso[1]}-${aIso[2]}-${aIso[3]}` : '';
+}
+
+// One S/4 property value → what the form shows. Flags become booleans
+// (CheckBox binding) — grid cells turn them into 'X' / '' themselves.
+function fromS4Value(oRow, sProp, sType) {
+    let vValue = oRow ? oRow[sProp] : undefined;
+    // Tax numbers over 20 characters live in the long field (see step 5
+    // of buildBusinessPartnerPayload).
+    if (sProp === 'BPTaxNumber' && !vValue && oRow) { vValue = oRow.BPTaxLongNumber; }
+    if (sType === 'flag') { return vValue === true || (vValue !== false && vValue !== null && vValue !== undefined && toFlag(vValue)); }
+    if (vValue === null || vValue === undefined) { return ''; }
+    if (sType === 'date') { return fromV2Date(vValue); }
+    return String(vValue);
+}
+
+/**
+ * The general data of an existing BP as Create BP form values — the
+ * reverse of buildBusinessPartnerPayload, through the same FIELD_MAP.
+ *
+ *   values: { <field_id>: value }               plain fields
+ *   grids : { <field_id>: [{ <column>: value }] } grid fields, one row per
+ *                                                 S/4 row of the segment
+ *
+ * Company code, sales area and purchasing data (role-instance segments)
+ * are not included — readBPRoleInstances supplies those per role.
+ * Fields that resolve to nothing in S/4 are left out, so the form keeps
+ * them blank.
+ */
+async function mapBusinessPartnerToFieldValues(oBp) {
+    const aFields = await SELECT.from('mdm.portal.FieldMaster')
+        .columns('field_id', 'source_table', 'source_field', 'grid')
+        .where({ active: true });
+    const aColumns = await SELECT.from('mdm.portal.GridColumn')
+        .columns('field_field_id', 'column_name', 'source_table', 'source_field');
+
+    const sCategory = oBp.BusinessPartnerCategory;
+    const sCountry = singleRow(oBp, 'address').Country || '';
+    const aTaxRows = GENERAL_ROWS.tax(oBp);
+    const isGeneral = (aTarget) => aTarget &&
+        (SINGLE_ROW_SEGMENTS.includes(aTarget[0]) || GENERAL_ROWS[aTarget[0]] || aTarget[0] === 'kna1Tax');
+
+    const mValues = {};
+    aFields.filter((oField) => !oField.grid).forEach((oField) => {
+        const aTarget = resolveTarget(oField, { field_field_id: oField.field_id }, sCategory);
+        if (!isGeneral(aTarget)) { return; }
+
+        let vValue;
+        if (aTarget[0] === 'kna1Tax') {
+            const oTax = aTaxRows.find((t) => t.BPTaxType === `${sCountry}${aTarget[1]}`);
+            vValue = fromS4Value(oTax, 'BPTaxNumber');
+        } else if (GENERAL_ROWS[aTarget[0]]) {
+            // A plain field on a multi-row segment shows the first row.
+            vValue = fromS4Value(GENERAL_ROWS[aTarget[0]](oBp)[0], aTarget[1], aTarget[2]);
+        } else {
+            vValue = fromS4Value(singleRow(oBp, aTarget[0]), aTarget[1], aTarget[2]);
+        }
+        if (vValue !== '' && vValue !== false) { mValues[oField.field_id] = vValue; }
+    });
+
+    const mGrids = {};
+    aFields.filter((oField) => oField.grid).forEach((oField) => {
+        const aCols = aColumns
+            .filter((oCol) => oCol.field_field_id === oField.field_id)
+            .map((oCol) => ({
+                name  : oCol.column_name,
+                target: resolveTarget(oCol, { field_field_id: oField.field_id, column_name: oCol.column_name }, sCategory)
+            }))
+            .filter((oCol) => oCol.target && GENERAL_ROWS[oCol.target[0]]);
+        if (!aCols.length) { return; }
+
+        // All columns of one grid describe the same S/4 segment (a bank
+        // grid, a tax grid …) — the first mapped column decides which.
+        const sSegment = aCols[0].target[0];
+        const aRows = GENERAL_ROWS[sSegment](oBp).map((oRow) => {
+            const oGridRow = {};
+            aCols.filter((oCol) => oCol.target[0] === sSegment).forEach((oCol) => {
+                const vValue = fromS4Value(oRow, oCol.target[1], oCol.target[2]);
+                oGridRow[oCol.name] = typeof vValue === 'boolean' ? (vValue ? 'X' : '') : vValue;
+            });
+            return oGridRow;
+        });
+        if (aRows.length) { mGrids[oField.field_id] = aRows; }
+    });
+
+    return { values: mValues, grids: mGrids };
+}
+
 /**
  * General data of one Business Partner, used to pre-fill the Create BP
  * form when an existing BP is extended or changed.
@@ -1215,11 +1351,7 @@ async function searchBusinessPartners(oCriteria) {
  * @returns {Promise<object>} shaped like GetExistingBPData's result in mdm-service.cds
  */
 async function readBusinessPartnerSummary(sBpNumber) {
-    const oBp = await readBusinessPartner(sBpNumber, [
-        'to_BusinessPartnerRole',
-        'to_BusinessPartnerAddress/to_PhoneNumber',
-        'to_BusinessPartnerAddress/to_EmailAddress'
-    ].join(','));
+    const oBp = await readBusinessPartner(sBpNumber, BP_EXPAND_GENERAL);
 
     // NAME1/NAME2 mean different properties per category — same mapping
     // the payload builder uses, read in the other direction.
@@ -1239,7 +1371,8 @@ async function readBusinessPartnerSummary(sBpNumber) {
         street        : oAddress.StreetName || '',
         telephone     : oPhone.PhoneNumber || '',
         email         : oEmail.EmailAddress || '',
-        existing_roles: Array.from(new Set(asArray(oBp.to_BusinessPartnerRole).map((r) => r.BusinessPartnerRole)))
+        existing_roles: Array.from(new Set(asArray(oBp.to_BusinessPartnerRole).map((r) => r.BusinessPartnerRole))),
+        field_values  : JSON.stringify(await mapBusinessPartnerToFieldValues(oBp))
     };
 }
 

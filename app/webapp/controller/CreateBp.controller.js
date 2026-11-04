@@ -156,7 +156,10 @@ sap.ui.define([
                 var sAg  = oData.account_group_account_group_id || "";
                 oRt.setProperty("/categoryId", sCat);
                 oRt.setProperty("/bpAgId",     sAg);
-                oRt.setProperty("/mode",        oData.request_type === "EXTEND" ? "EXTEND" : "CREATE");
+                // CHANGE and EXTEND both work on an existing BP ("EXTEND"
+                // in /mode — _requestType tells them apart on save)
+                var bExistingBp = oData.request_type === "EXTEND" || oData.request_type === "CHANGE";
+                oRt.setProperty("/mode",        bExistingBp ? "EXTEND" : "CREATE");
                 oRt.setProperty("/started",     true);
                 oRt.setProperty("/priority",    oData.priority || "NORMAL");
 
@@ -311,7 +314,20 @@ sap.ui.define([
                     }
                 }.bind(this)).catch(function () {});
 
-                // ── 6. Trigger role resolution and form build ─────────
+                // ── 6. Existing BP (CHANGE / EXTEND): restore which BP it
+                //       is — without this a re-save loses
+                //       reference_object_no — and load its S/4 data, which
+                //       fills only the fields the draft left empty ──────
+                var sRefBp = oData.reference_object_no || "";
+                if (bExistingBp && sRefBp) {
+                    oRt.setProperty("/extendBp",     sRefBp);
+                    oRt.setProperty("/extendBpData", { bp_number: sRefBp });
+                    oRt.setProperty("/bpNumber",     sRefBp);
+                    oRt.setProperty("/bpNumberEditable", false);
+                    this._fetchExistingBpData(sRefBp);
+                }
+
+                // ── 7. Trigger role resolution and form build ─────────
                 if (aRoleKeys.length) {
                     this._onRoleKeysChanged(aRoleKeys);
                 }
@@ -371,6 +387,7 @@ sap.ui.define([
             this._mRolePrereqFields = {};
             this._mRoleInstances = {};
             this._aMainTabItems = [];
+            this._oBpPrefill = null;     // existing BP's S/4 field values
             this._mFieldEntitySet = {};  // reset per-field entity set cache
             this.getView().getModel("form").setProperty("/values", {});
             var oTabs = this.byId("cbpTabs");
@@ -650,19 +667,38 @@ sap.ui.define([
             this._activateExtendMode(sBpNum, sName, sCat, sAg);
         },
 
-        // Switch the form into EXTEND mode for the chosen existing BP.
+        // Switch the form into existing-BP mode ("EXTEND" in /mode) for the
+        // chosen BP. Whether it is saved as a CHANGE or an EXTEND request is
+        // decided at save time \u2014 see _requestType.
         _activateExtendMode: function (sBpNum, sName, sCat, sAg) {
             var oRt = this._oRt;
             oRt.setProperty("/mode",      "EXTEND");
             oRt.setProperty("/started",   true);
             oRt.setProperty("/extendBp",  sBpNum + " \u2014 " + sName);
-            oRt.setProperty("/catDisp",   sCat || "\u2014");
-            oRt.setProperty("/bpAgDisp",  sAg  || "\u2014");
-            oRt.setProperty("/subtitle",  "Extending BP " + sBpNum + " \u00b7 " + sName);
-            oRt.setProperty("/status",    "Extend");
+            oRt.setProperty("/subtitle",  "Changing BP " + sBpNum + " \u00b7 " + sName);
+            oRt.setProperty("/status",    "Change");
+
+            // The BP's own category and account group \u2014 both go on the
+            // change request, and the account group is required to save.
+            var aCats = this.getView().getModel("cat").getProperty("/items") || [];
+            var oCat  = aCats.find(function (c) {
+                return String(c.key).toUpperCase() === String(sCat || "").toUpperCase();
+            });
+            oRt.setProperty("/categoryId", oCat ? oCat.key : "");
+            oRt.setProperty("/catDisp",    oCat ? oCat.text : (sCat || "\u2014"));
+            if (sAg && this._mAccountGroups[sAg]) {
+                this._applyAgSelection(sAg);
+            } else {
+                oRt.setProperty("/bpAgId",   "");
+                oRt.setProperty("/bpAgDisp", sAg || "");
+            }
+            // The BP already has its number \u2014 never editable here.
+            oRt.setProperty("/bpNumber",         sBpNum);
+            oRt.setProperty("/bpNumberEditable", false);
 
             // Store the minimal data we have; also fetch the full header
             oRt.setProperty("/extendBpData", { bp_number: sBpNum, name: sName, category: sCat, account_group: sAg });
+            this._oBpPrefill = null;
 
             // Fetch the full data (for pre-filling fields)
             this._fetchExistingBpData(sBpNum);
@@ -673,6 +709,7 @@ sap.ui.define([
             var oModel = this.getOwnerComponent().getModel();
             var oBinding = oModel.bindContext("/GetExistingBPData(...)")
                 .setParameter("bp_number", sBpNum);
+            this._oRt.setProperty("/busy", true);
             // The result is read from the bound context — execute() itself
             // resolves without it (see _runBpSearch).
             oBinding.execute()
@@ -681,48 +718,94 @@ sap.ui.define([
                     if (!oResult) return;
                     oResult = Object.assign({}, oResult);
                     this._oRt.setProperty("/extendBpData", oResult);
-                    // Pre-fill form values with existing BP data
-                    this._prefillExtendValues(oResult);
-                    // If roles are already selected, refresh the tabs (now with real data)
-                    if ((this._oRt.getProperty("/roleKeys") || []).length) {
+
+                    // Every general-data field value of the BP, keyed by
+                    // field_id — applied to whichever roles get rendered.
+                    var oPrefill = { values: {}, grids: {} };
+                    try {
+                        oPrefill = Object.assign(oPrefill, JSON.parse(oResult.field_values || "{}"));
+                    } catch (e) { /* no pre-fill — form still works */ }
+                    this._oBpPrefill = oPrefill;
+
+                    // No roles picked yet → show the BP with the roles it
+                    // already has in S/4 (those configured in the portal),
+                    // so all of its data is on screen straight away.
+                    var aRoleKeys = this._oRt.getProperty("/roleKeys") || [];
+                    if (!aRoleKeys.length) {
+                        var oRolesModel = this.getView().getModel("roles");
+                        var aItems = oRolesModel.getProperty("/items") || [];
+                        var aExisting = (oResult.existing_roles || []).filter(function (k) {
+                            return aItems.some(function (i) { return i.key === k; });
+                        });
+                        if (aExisting.length) {
+                            aItems.forEach(function (i) { i.selected = aExisting.indexOf(i.key) >= 0; });
+                            oRolesModel.setProperty("/items", aItems);
+                            this._onRoleKeysChanged(aExisting);
+                            return;
+                        }
+                    }
+                    // Roles already selected → fill them and re-render
+                    this._prefillExtendValues();
+                    if (aRoleKeys.length) {
                         this._renderTabsForActiveRole();
                     }
                 }.bind(this))
-                .catch(function () { /* non-fatal — form still works without pre-fill */ });
+                .catch(function (oErr) {
+                    // Non-fatal — the form still works, just without pre-fill
+                    MessageToast.show("Could not read the BP's data from S/4HANA: " +
+                        ((oErr && oErr.message) || "unknown error"));
+                })
+                .finally(function () {
+                    this._oRt.setProperty("/busy", false);
+                }.bind(this));
         },
 
-        // Pre-fill form values from the existing BP response.
-        // Called in EXTEND mode so the user sees existing data in every field.
-        // Writes the same pre-filled value into every currently resolved
-        // role's namespace (form>/values/{role}/{field_id}) since this data
-        // describes the BP itself, not anything role-specific — it should
-        // show up no matter which role tab the user is viewing.
-        _prefillExtendValues: function (oBpData) {
-            if (!oBpData) return;
+        // Pre-fill form values from the existing BP's S/4 data
+        // (this._oBpPrefill, see _fetchExistingBpData). Each resolved role
+        // gets the values of the fields IT has (form>/values/{role}/{field_id})
+        // since this data describes the BP itself, not anything
+        // role-specific — it shows up whichever role tab the user views.
+        _prefillExtendValues: function () {
+            var oPrefill = this._oBpPrefill;
+            if (!oPrefill) return;
             var oFormModel = this.getView().getModel("form");
-            var mCurrent   = Object.assign({}, oFormModel.getProperty("/values") || {});
-            var mFill = {
-                NAME1    : oBpData.name      || "",
-                NAME2    : oBpData.name2     || "",
-                COUNTRY  : oBpData.country   || "",
-                CITY     : oBpData.city      || "",
-                STREET   : oBpData.street    || "",
-                TELEPHONE: oBpData.telephone || "",
-                EMAIL    : oBpData.email     || ""
-            };
-            // Every role that currently has resolved field assignments
-            var aRoleIds = [];
+            var mAllValues = Object.assign({}, oFormModel.getProperty("/values") || {});
+            var mCloned    = {};
             this._aAllAssignments.forEach(function (a) {
-                if (aRoleIds.indexOf(a.role) < 0) { aRoleIds.push(a.role); }
+                var vFill = a.grid ? oPrefill.grids[a.field_id] : oPrefill.values[a.field_id];
+                if (vFill === undefined) { return; }
+                if (!mCloned[a.role]) {
+                    // Fresh clone — see the note in _renderTabsForActiveRole
+                    mAllValues[a.role] = Object.assign({}, mAllValues[a.role] || {});
+                    mCloned[a.role] = true;
+                }
+                // Merge: only fill what the user (or a reloaded draft) left empty
+                var vHave  = mAllValues[a.role][a.field_id];
+                var bEmpty = vHave === undefined || vHave === null || vHave === "" ||
+                    (Array.isArray(vHave) && !vHave.length);
+                if (bEmpty) {
+                    mAllValues[a.role][a.field_id] = a.grid
+                        ? vFill.map(function (oRow) { return Object.assign({}, oRow); })
+                        : vFill;
+                }
             });
-            aRoleIds.forEach(function (sRoleId) {
-                mCurrent[sRoleId] = Object.assign({}, mCurrent[sRoleId] || {});
-                // Merge: only set if not already entered by the user
-                Object.keys(mFill).forEach(function (k) {
-                    if (!mCurrent[sRoleId][k] && mFill[k]) { mCurrent[sRoleId][k] = mFill[k]; }
-                });
+            oFormModel.setProperty("/values", mAllValues);
+        },
+
+        // A request on an existing BP is a CHANGE unless it adds something
+        // the BP doesn't have in S/4 yet — a role, or a new company code /
+        // sales area / purchasing org combination — which makes it an
+        // EXTEND. Both are posted by updateBusinessPartner the same way.
+        _requestType: function () {
+            var oRt = this._oRt;
+            if (oRt.getProperty("/mode") !== "EXTEND") { return "CREATE"; }
+            var aExisting = oRt.getProperty("/extendBpData/existing_roles") || [];
+            var bNewRole  = this._aAllAssignments.some(function (a) {
+                return aExisting.indexOf(a.role) < 0;
             });
-            oFormModel.setProperty("/values", mCurrent);
+            var mInst     = oRt.getProperty("/roleInstance") || {};
+            var bNewCombo = Object.keys(mInst).some(function (k) { return mInst[k] === "new"; });
+            return (bNewRole || bNewCombo) ? "EXTEND" : "CHANGE";
         },
 
         // ── BP Role Value Help ────────────────────────────────────────
@@ -1194,6 +1277,9 @@ sap.ui.define([
             }.bind(this)).then(function () {
                 this._setupActiveRole(aResolvedRoles);
                 this._renderRoleBar(aResolvedRoles, aPickedRoles);
+                // Existing BP: fill the (newly) resolved roles' fields
+                // with its S/4 data before they are rendered.
+                this._prefillExtendValues();
                 this._renderTabsForActiveRole();
             }.bind(this)).catch(function (oErr) {
                 MessageBox.error("Could not load fields for the selected roles: " +
@@ -3067,6 +3153,14 @@ sap.ui.define([
                 var aInstances  = (this._mRoleInstances && this._mRoleInstances[sRoleId])
                     ? this._mRoleInstances[sRoleId]
                     : null;
+                // Instances read from S/4 (GetBPRoleInstances — they carry
+                // a field_values JSON, not a fieldValues snapshot) only feed
+                // the "Show extensions" picker: the form holds the ONE
+                // combination being edited or added, the rest stays as it is
+                // in S/4. So only the form's values are sent, as one instance.
+                if (aInstances && aInstances.length && aInstances[0].fieldValues === undefined) {
+                    aInstances = null;
+                }
 
                 if (aInstances && aInstances.length) {
                     // ── Multi-instance: one CRBPRole row per instance ─
@@ -3131,7 +3225,7 @@ sap.ui.define([
             // ── 4. Assemble the full payload ─────────────────────────
             var oPayload = {
                 cr_id                : oRt.getProperty("/crId") || "",
-                request_type         : oRt.getProperty("/mode") === "EXTEND" ? "EXTEND" : "CREATE",
+                request_type         : this._requestType(),
                 bp_category          : oRt.getProperty("/categoryId") || "",
                 account_group        : oRt.getProperty("/bpAgId") || "",
                 reference_object_no  : (oRt.getProperty("/extendBpData/bp_number")) || "",
