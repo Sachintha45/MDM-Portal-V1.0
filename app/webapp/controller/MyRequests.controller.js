@@ -49,6 +49,11 @@ sap.ui.define([
             } catch (e) { return sVal; }
         },
 
+        // "View error" link is shown only for POSTING_FAILED requests that carry an error text.
+        formatPostingErrorVisible: function (sStatus, sError) {
+            return String(sStatus || "").trim().toUpperCase() === "POSTING_FAILED" && !!sError;
+        },
+
         _onRouteMatched: function () {
             // Re-apply filters (requester scope + whatever status/type/search
             // is currently set) each time the route is hit, rather than a

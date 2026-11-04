@@ -118,7 +118,7 @@
                                                ${status} === 'POSTING_FAILED' ? 'Error' : 'None'}"/>
                                     <!-- Why S/4HANA rejected the posting — full text in a dialog -->
                                     <Link text="View error"
-                                          visible="{= ${status} === 'POSTING_FAILED' &amp;&amp; !!${posting_error}}"
+                                          visible="{parts: ['status', 'posting_error'], formatter: '.formatPostingErrorVisible'}"
                                           tooltip="{posting_error}"
                                           press=".onPostingErrorPress"/>
                                 </VBox>
