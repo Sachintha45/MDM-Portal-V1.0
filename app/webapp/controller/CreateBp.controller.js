@@ -560,13 +560,19 @@ sap.ui.define([
                             new HBox({ alignItems: "End", items: [
                                 new VBox({ width: "50%", class: "sapUiSmallMarginEnd", items: [
                                     new Label({ text: "Search (BP number / name)" }),
+                                    // valueLiveUpdate: push each keystroke into the model,
+                                    // otherwise the debounced search reads a stale (empty) /query.
                                     new Input({ value: "{bpSearch>/query}", width: "100%",
-                                        liveChange: this._refreshBpSearch.bind(this) })
+                                        valueLiveUpdate: true,
+                                        liveChange: this._refreshBpSearch.bind(this),
+                                        submit    : this._refreshBpSearch.bind(this) })
                                 ]}),
                                 new VBox({ width: "25%", class: "sapUiSmallMarginEnd", items: [
                                     new Label({ text: "Country" }),
                                     new Input({ value: "{bpSearch>/country}", width: "100%",
-                                        liveChange: this._refreshBpSearch.bind(this) })
+                                        valueLiveUpdate: true,
+                                        liveChange: this._refreshBpSearch.bind(this),
+                                        submit    : this._refreshBpSearch.bind(this) })
                                 ]}),
                                 new Button({ text: "Search", type: "Emphasized",
                                     press: this._refreshBpSearch.bind(this) })
