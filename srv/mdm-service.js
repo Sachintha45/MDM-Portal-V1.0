@@ -764,6 +764,16 @@ class MDMPortalService extends cds.ApplicationService {
 
             const sMdt = strategy.master_data_type_master_data_type_id;
 
+            // A resubmitted CR (e.g. corrected after a failed S/4HANA
+            // posting) already has a snapshot from its previous approval
+            // round. CRReleaseStrategy is keyed by the CR alone, so the
+            // INSERT below would hit a duplicate key — and the old steps
+            // are all APPROVED, which would skip the new round entirely.
+            // Drop the old snapshot; the previous round's decisions stay
+            // in CRApprovalDecision as history.
+            await db.run(DELETE.from('mdm.portal.CRReleaseStep').where({ cr_cr_cr_id: crId }));
+            await db.run(DELETE.from('mdm.portal.CRReleaseStrategy').where({ cr_cr_id: crId }));
+
             // Column names below are the ACTUAL flattened foreign keys
             // generated from the CDS associations (confirmed via
             // `cds compile db/data-model.cds --to sql --dialect sqlite`) —
@@ -1531,6 +1541,10 @@ class MDMPortalService extends cds.ApplicationService {
             // set explicitly here (this previously left "Created On" blank
             // in My Requests for every CR saved through this action).
             const dNow = new Date();
+            // Set below when an existing POSTING_FAILED CR is being
+            // corrected and resubmitted — its previous status/error are
+            // kept for the audit log.
+            let oResubmitOf = null;
 
             try {
                 if (isNew) {
@@ -1579,8 +1593,31 @@ class MDMPortalService extends cds.ApplicationService {
                     if (!existing) {
                         return req.error(404, `Change request ${sCrId} not found`);
                     }
-                    if (existing.status !== 'DRAFT') {
+                    // DRAFT: normal edit. POSTING_FAILED: the request was
+                    // fully approved but S/4HANA rejected the posting —
+                    // the requester corrects the data and it goes through
+                    // the whole approval process again (the approvers
+                    // never saw the corrected values). It can only be
+                    // resubmitted, not parked as a draft: a DRAFT is
+                    // hard-deleted on cancel, which must not happen to a
+                    // request that already carries approval history.
+                    const bPostingFailed = existing.status === 'POSTING_FAILED';
+                    if (existing.status !== 'DRAFT' && !bPostingFailed) {
                         return req.error(400, `Cannot update CR ${sCrId} — status is ${existing.status}`);
+                    }
+                    if (bPostingFailed && !submit) {
+                        return req.error(400,
+                            `CR ${sCrId} failed posting to S/4HANA — it can only be corrected and resubmitted for approval, not saved as a draft.`);
+                    }
+                    if (bPostingFailed && existing.posted_object_no) {
+                        // Should not happen (a successful post sets POSTED),
+                        // but never let a CR that reached S/4 be re-approved
+                        // and re-posted — for CREATE that's a duplicate BP.
+                        return req.error(400,
+                            `CR ${sCrId} already has Business Partner ${existing.posted_object_no} in S/4HANA and cannot be resubmitted.`);
+                    }
+                    if (bPostingFailed) {
+                        oResubmitOf = { status: existing.status, posting_error: existing.posting_error };
                     }
 
                     // ── UPDATE header ────────────────────────────────────
@@ -1595,6 +1632,9 @@ class MDMPortalService extends cds.ApplicationService {
                         priority                        : sPriority,
                         status                         : sStatus,
                         submitted_at                   : submit ? dNow : null,
+                        // The old S/4 error no longer applies to the
+                        // corrected data — a new failure will set it again.
+                        ...(oResubmitOf ? { posting_error: null } : {}),
                         modifiedAt                      : dNow,
                         modifiedBy                      : actor
                     });
@@ -1709,15 +1749,19 @@ class MDMPortalService extends cds.ApplicationService {
                 await this.createAuditLog(
                     'CRHeader', sCrId,
                     isNew ? 'CREATE' : (submit ? 'SUBMIT' : 'UPDATE'),
-                    actor
+                    actor,
+                    oResubmitOf,
+                    oResubmitOf ? { status: sStatus, resubmitted_after_posting_failure: true } : null
                 );
 
                 return {
                     cr_id  : sCrId,
                     status : sStatus,
-                    message: submit
-                        ? `Change request ${sCrId} submitted for approval.`
-                        : `Change request ${sCrId} saved as draft.`
+                    message: oResubmitOf
+                        ? `Change request ${sCrId} corrected and resubmitted for approval.`
+                        : submit
+                            ? `Change request ${sCrId} submitted for approval.`
+                            : `Change request ${sCrId} saved as draft.`
                 };
 
             } catch (err) {

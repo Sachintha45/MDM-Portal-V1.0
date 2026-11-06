@@ -151,6 +151,16 @@ sap.ui.define([
             .then(function (oData) {
                 oRt.setProperty("/busy", false);
 
+                // ── 0. Approved but S/4HANA rejected the posting ─────
+                var bResubmit = oData.status === "POSTING_FAILED";
+                oRt.setProperty("/resubmit",     bResubmit);
+                oRt.setProperty("/postingError", bResubmit ? (oData.posting_error || "") : "");
+                if (bResubmit) {
+                    oRt.setProperty("/status",   "Posting Failed");
+                    oRt.setProperty("/subtitle", "Correcting failed posting — " + sCrId +
+                        ". Resubmitting restarts the approval process.");
+                }
+
                 // ── 1. Restore header selections ─────────────────────
                 var sCat = oData.bp_category_category_id || "";
                 var sAg  = oData.account_group_account_group_id || "";
@@ -332,7 +342,9 @@ sap.ui.define([
                     this._onRoleKeysChanged(aRoleKeys);
                 }
 
-                MessageToast.show("Draft " + sCrId + " loaded \u2014 make your changes and save.");
+                MessageToast.show(bResubmit
+                    ? sCrId + " loaded \u2014 correct the data and resubmit for approval."
+                    : "Draft " + sCrId + " loaded \u2014 make your changes and save.");
 
             }.bind(this))
             .catch(function (oErr) {
@@ -371,6 +383,10 @@ sap.ui.define([
                 // schema's own default. User can switch to HIGH on screen.
                 priority         : "NORMAL",
                 crId             : "",
+                // true while correcting a POSTING_FAILED request: it can
+                // only be resubmitted (approvals restart), not saved as draft
+                resubmit         : false,
+                postingError     : "",
                 busy             : false,
                 // header strip
                 catDisp          : "\u2014",
@@ -3115,10 +3131,14 @@ sap.ui.define([
                 MessageBox.warning("Please fix the following before submitting:\n\n" + aMissing.join("\n"));
                 return;
             }
+            var bResubmit = this._oRt.getProperty("/resubmit");
             MessageBox.confirm(
-                "Submit this change request for approval?",
+                bResubmit
+                    ? "Resubmit the corrected request?\n\nIt will go through the full approval process " +
+                      "again and is posted to S/4HANA once the last approval is given."
+                    : "Submit this change request for approval?",
                 {
-                    title  : "Save & Create",
+                    title  : bResubmit ? "Save & Resubmit" : "Save & Create",
                     actions: [MessageBox.Action.YES, MessageBox.Action.NO],
                     onClose: function (sAction) {
                         if (sAction === MessageBox.Action.YES) { this._saveCR(true); }
@@ -3327,9 +3347,9 @@ sap.ui.define([
 
                 if (bSubmit) {
                     MessageBox.success(
-                        "Change request " + sCrId + " submitted for approval.",
+                        (oResult && oResult.message) || ("Change request " + sCrId + " submitted for approval."),
                         {
-                            title  : "Submitted",
+                            title  : oRt.getProperty("/resubmit") ? "Resubmitted" : "Submitted",
                             onClose: function () {
                                 this.getOwnerComponent().getRouter().navTo("home");
                             }.bind(this)

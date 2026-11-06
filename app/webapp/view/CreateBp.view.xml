@@ -62,6 +62,14 @@
                     </VBox>
                 </HBox>
 
+                <!-- ── Correcting a failed posting: why S/4HANA rejected it ── -->
+                <MessageStrip id="msPostingError"
+                              visible="{= !!${rt>/resubmit} }"
+                              type="Error"
+                              showIcon="true"
+                              class="sapUiSmallMarginTop"
+                              text="{= 'Posting to S/4HANA failed: ' + (${rt>/postingError} || 'no error details recorded') + '. Correct the data and resubmit — the request will go through approval again.' }"/>
+
                 <!-- ── EXTEND mode context strip ─────────────────────── -->
                 <MessageStrip id="msExtendCtx"
                               visible="{= ${rt>/mode} === 'EXTEND' &amp;&amp; !!${rt>/extendBp} }"
@@ -160,9 +168,13 @@
             <OverflowToolbar>
                 <ToolbarSpacer/>
                 <Button id="btnCancel"     text="Cancel"          type="Default"     press=".onCancel"/>
+                <!-- Hidden while correcting a failed posting: that request can
+                     only be resubmitted (see SaveBPChangeRequest) -->
                 <Button id="btnSaveDraft"  text="Save Draft"      icon="sap-icon://save"
-                        type="Transparent" press=".onSaveDraft"   enabled="{rt>/started}"/>
-                <Button id="btnSaveCreate" text="Save &amp; Create" type="Emphasized"
+                        type="Transparent" press=".onSaveDraft"   enabled="{rt>/started}"
+                        visible="{= !${rt>/resubmit} }"/>
+                <Button id="btnSaveCreate" text="{= ${rt>/resubmit} ? 'Save &amp; Resubmit' : 'Save &amp; Create' }"
+                        type="Emphasized"
                         press=".onSaveCreate" enabled="{rt>/canSave}"/>
             </OverflowToolbar>
         </footer>

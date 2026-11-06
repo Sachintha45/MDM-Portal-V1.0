@@ -129,6 +129,12 @@
                 <Button id="btnEdit"   text="Edit Draft"      icon="sap-icon://edit"
                         visible="{= ${view>/status} === 'DRAFT'}"
                         press=".onEditDraft"/>
+                <!-- Approved, but S/4HANA rejected the posting: correct the
+                     data and send it through the approvals again -->
+                <Button id="btnEditResubmit" text="Edit &amp; Resubmit" icon="sap-icon://edit"
+                        type="Emphasized"
+                        visible="{= ${view>/status} === 'POSTING_FAILED'}"
+                        press=".onEditDraft"/>
                 <Button id="btnSubmit" text="Submit"          icon="sap-icon://paper-plane"
                         type="Emphasized"
                         visible="{= ${view>/status} === 'DRAFT'}"

@@ -1184,8 +1184,10 @@ sap.ui.define([
         onEditDraft: function () {
             var sCrId  = this._oViewModel.getProperty("/crId");
             var sStatus = this._oViewModel.getProperty("/status");
-            if (sStatus !== "DRAFT") {
-                MessageBox.warning("Only DRAFT requests can be edited.");
+            // POSTING_FAILED: the Create BP screen opens in "correct and
+            // resubmit" mode — saving it restarts the approval process.
+            if (sStatus !== "DRAFT" && sStatus !== "POSTING_FAILED") {
+                MessageBox.warning("Only DRAFT or Posting Failed requests can be edited.");
                 return;
             }
             this.getOwnerComponent().getRouter().navTo("createBPEdit", {
