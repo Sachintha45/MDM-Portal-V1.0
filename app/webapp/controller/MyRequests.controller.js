@@ -60,7 +60,15 @@ sap.ui.define([
             // bare refresh — this guarantees the requester scope is in place
             // even on the very first navigation, where onInit's user-id
             // lookup may still be in flight.
-            this._pMyUserId.then(this._applyFilters.bind(this));
+            // The OData V4 list binding keeps its cached data when the same
+            // filters are applied again, so a request created since the last
+            // visit (e.g. just submitted from Create BP) would not appear
+            // until a browser refresh. Force a reload from the server too.
+            this._pMyUserId.then(function () {
+                this._applyFilters();
+                var oBinding = this.byId("crTable").getBinding("items");
+                if (oBinding) { oBinding.refresh(); }
+            }.bind(this));
         },
 
         onFilterChange: function () {

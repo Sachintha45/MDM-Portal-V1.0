@@ -26,6 +26,7 @@ sap.ui.define([
             });
             this.getView().setModel(this._oViewModel, "view");
             this.getView().setModel(new JSONModel({ items: [] }), "assigned");
+            this._aPendingFields = [];
 
             var oRouter = this.getOwnerComponent().getRouter();
             oRouter.getRoute("accountGroupDetail").attachPatternMatched(this._onRouteMatched, this);
@@ -38,6 +39,7 @@ sap.ui.define([
             this._oViewModel.setProperty("/selectedTab", "general");
             this.byId("detailTabs").setSelectedKey("general");
             this.getView().getModel("assigned").setProperty("/items", []);
+            this._aPendingFields = [];
             this._oViewModel.setProperty("/fieldCount", "0");
 
             if (sId === "NEW") {
@@ -185,6 +187,7 @@ sap.ui.define([
 
         // ── Additional Fields tab ────────────────────────────────────
         _loadFields: function () {
+            if (this._oViewModel.getProperty("/isNew")) { return; }
             var sId = this._groupId();
             if (!sId) { return; }
             var oModel = this.getOwnerComponent().getModel();
@@ -229,12 +232,22 @@ sap.ui.define([
 
         // ── Row navigation ───────────────────────────────────────────
         onFieldRowPress: function (oEvent) {
-            var sFieldId = oEvent.getSource().getBindingContext("assigned").getProperty("field_id");
+            var oRowData = oEvent.getSource().getBindingContext("assigned").getObject();
+            if (this._oViewModel.getProperty("/isNew")) {
+                this._openFieldAssignmentEdit({
+                    stageOnly   : true,
+                    pendingRow  : oRowData,
+                    showReadOnly: false,
+                    onDone      : this._refreshAssignedFromPending.bind(this),
+                    onRemove    : this._removeStagedField.bind(this, oRowData)
+                });
+                return;
+            }
             this._openFieldAssignmentEdit({
                 collection   : "/AccountGroupFields",
                 fkName       : "account_group_account_group_id",
                 fkValue      : this._groupId(),
-                fieldId      : sFieldId,
+                fieldId      : oRowData.field_id,
                 updateGroupId: "accountGroupUpdate",
                 showReadOnly : false,
                 onDone       : this._loadFields.bind(this)
@@ -246,51 +259,129 @@ sap.ui.define([
         },
 
         onRemoveField: function (oEvent) {
-            var oRowCtx   = oEvent.getSource().getBindingContext("assigned");
-            var sFieldId  = oRowCtx.getProperty("field_id");
-            var sDesc     = oRowCtx.getProperty("description");
-            var sGroupId  = this._groupId();
+            var oRowCtx  = oEvent.getSource().getBindingContext("assigned");
+            var oRowData = oRowCtx.getObject();
+            var sFieldId = oRowData.field_id;
+            var sDesc    = oRowData.description;
+            var sGroupId = this._groupId();
+            var bIsNew   = this._oViewModel.getProperty("/isNew");
 
             MessageBox.confirm(
                 "Remove field \"" + sFieldId + " \u2014 " + sDesc + "\" from this account group?", {
                 title  : "Confirm Removal",
                 onClose: function (sAction) {
                     if (sAction !== MessageBox.Action.OK) { return; }
+                    if (bIsNew) { this._removeStagedField(oRowData); return; }
 
                     var oModel = this.getOwnerComponent().getModel();
-                    oModel.bindContext(
-                        "/AccountGroupFields(account_group_account_group_id='" + sGroupId +
-                        "',field_field_id='" + sFieldId + "')"
-                    ).getBoundContext().delete("$auto")
-                        .then(function () {
-                            MessageToast.show("Field removed.");
-                            this._loadFields();
+                    var oFilter = new Filter({
+                        filters: [
+                            new Filter("account_group_account_group_id", FilterOperator.EQ, sGroupId),
+                            new Filter("field_field_id", FilterOperator.EQ, sFieldId)
+                        ],
+                        and: true
+                    });
+                    oModel.bindList("/AccountGroupFields", null, null, [oFilter])
+                        .requestContexts(0, 1)
+                        .then(function (aCtx) {
+                            if (!aCtx || !aCtx.length) {
+                                MessageToast.show("Row not found \u2014 already removed?");
+                                this._loadFields();
+                                return;
+                            }
+                            return aCtx[0].delete("$auto").then(function () {
+                                MessageToast.show("Field removed.");
+                                this._loadFields();
+                            }.bind(this));
                         }.bind(this))
                         .catch(function (e) {
-                            MessageBox.error("Could not remove field: " + (e.message || "Unknown error"));
-                        }.bind(this));
+                            MessageBox.error("Could not remove field: " + (e && e.message || "Unknown error"));
+                        });
                 }.bind(this)
             });
         },
 
         onAssignFields: function () {
-            var sId = this._groupId();
-            if (!sId) { MessageToast.show("Save the account group first."); return; }
             var aItems = this.getView().getModel("assigned").getProperty("/items") || [];
             var iMaxSeq = aItems.reduce(function (m, o) {
                 return Math.max(m, parseInt(o.sequence, 10) || 0);
             }, 0);
+
+            if (this._oViewModel.getProperty("/isNew")) {
+                this._openAssignFields({
+                    collection   : "/AccountGroupFields",
+                    stageOnly    : true,
+                    dialogTitle  : "Assign Fields",
+                    includeStatus: true,
+                    assignedIds  : aItems.map(function (o) { return o.field_id; }),
+                    maxSequence  : iMaxSeq,
+                    onDone       : this._addStagedFields.bind(this)
+                });
+                return;
+            }
             this._openAssignFields({
                 collection   : "/AccountGroupFields",
                 dialogTitle  : "Assign Fields",
                 includeStatus: true,
                 fkName       : "account_group_account_group_id",
-                fkValue      : sId,
+                fkValue      : this._groupId(),
                 updateGroupId: "accountGroupUpdate",
                 assignedIds  : aItems.map(function (o) { return o.field_id; }),
                 maxSequence  : iMaxSeq,
                 onDone       : this._loadFields.bind(this)
             });
+        },
+
+        // ── Staged mode (new / copied, unsaved account group) ────────
+        _addStagedFields: function (aNewRows) {
+            var aMapped = aNewRows.map(function (o) {
+                var sSub  = o.sub_group || "";
+                var sMain = o.main_group || "";
+                return {
+                    field_id    : o.field_id,
+                    description : o.description || "",
+                    group_path  : (sMain + (sSub && sSub !== sMain ? " \u25b8 " + sSub : "")) || "\u2014",
+                    field_status: o.field_status,
+                    sequence    : o.sequence,
+                    overrides   : false
+                };
+            });
+            this._aPendingFields = (this._aPendingFields || []).concat(aMapped);
+            this._refreshAssignedFromPending();
+            this._oViewModel.setProperty("/isDirty", true);
+            MessageToast.show(aNewRows.length + " field(s) added \u2014 they'll be saved with the account group.");
+        },
+
+        _refreshAssignedFromPending: function () {
+            var a = (this._aPendingFields || []).slice();
+            this.getView().getModel("assigned").setProperty("/items", a);
+            this._oViewModel.setProperty("/fieldCount", String(a.length));
+        },
+
+        _removeStagedField: function (oRowData) {
+            this._aPendingFields = (this._aPendingFields || []).filter(function (o) {
+                return o.field_id !== oRowData.field_id;
+            });
+            this._refreshAssignedFromPending();
+            MessageToast.show("Field removed.");
+        },
+
+        _persistPendingFields: function (sGroupId) {
+            var aPending = this._aPendingFields || [];
+            if (!aPending.length) { return Promise.resolve(); }
+            var oModel = this.getOwnerComponent().getModel();
+            var oLB = oModel.bindList("/AccountGroupFields", null, [], [], {
+                $$updateGroupId: "accountGroupFieldsCreate"
+            });
+            aPending.forEach(function (o) {
+                oLB.create({
+                    account_group_account_group_id: sGroupId,
+                    field_field_id                : o.field_id,
+                    field_status                  : o.field_status,
+                    sequence                      : o.sequence
+                });
+            });
+            return oModel.submitBatch("accountGroupFieldsCreate");
         },
 
         // ── Save ─────────────────────────────────────────────────────
@@ -331,12 +422,30 @@ sap.ui.define([
                     return false;
                 })
                 .then(function (bWasCreated) {
+                    if (bWasCreated && this._aPendingFields && this._aPendingFields.length) {
+                        return this._persistPendingFields(sId)
+                            .then(function () { return { created: true, failed: false }; })
+                            .catch(function (oErr) { return { created: true, failed: true, err: oErr }; });
+                    }
+                    return { created: bWasCreated, failed: false };
+                }.bind(this))
+                .then(function (oRes) {
                     this._oViewModel.setProperty("/busy",    false);
                     this._oViewModel.setProperty("/isDirty", false);
-                    MessageToast.show("Account group saved successfully.");
-                    if (bWasCreated) {
-                        // Delay slightly so the toast actually paints before the
-                        // route change tears the page down.
+                    this._aPendingFields = [];
+
+                    if (oRes.created && oRes.failed) {
+                        this._oCreateListBinding = null;
+                        this._oViewModel.setProperty("/isNew", false);
+                        this._loadFields();
+                        MessageBox.warning("Account group saved, but the field assignments could not be saved: " +
+                            ((oRes.err && oRes.err.message) || "Unknown error") + "\n\nPlease re-add them below.");
+                        return;
+                    }
+
+                    MessageToast.show(oRes.created ? "Account group and its fields saved successfully."
+                                                   : "Account group saved successfully.");
+                    if (oRes.created) {
                         this._oCreateListBinding = null;
                         setTimeout(this.onNavBack.bind(this), 300);
                     } else if (oCtx) {
@@ -355,6 +464,7 @@ sap.ui.define([
             var fnGoBack = function () {
                 this.getOwnerComponent().getModel().resetChanges("accountGroupUpdate");
                 this._oViewModel.setProperty("/isDirty", false);
+                this._aPendingFields = [];
                 this.onNavBack();
             }.bind(this);
             if (this._oViewModel.getProperty("/isDirty")) {
@@ -388,6 +498,9 @@ sap.ui.define([
                 // setBindingContext, otherwise the copy never appears.
                 this.getView().unbindObject();
                 this.getView().setBindingContext(oNewCtx);
+                this._aPendingFields = [];
+                this.getView().getModel("assigned").setProperty("/items", []);
+                this._oViewModel.setProperty("/fieldCount", "0");
                 this._oViewModel.setProperty("/isNew",   true);
                 this._oViewModel.setProperty("/isDirty", true);
                 this._setTypeRadio(oData.type);

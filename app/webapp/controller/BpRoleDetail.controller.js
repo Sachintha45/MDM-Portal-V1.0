@@ -19,13 +19,13 @@ sap.ui.define([
 
         onInit: function () {
             this._oViewModel = new JSONModel({
-                busy             : false,
-                isNew            : false,
-                isDirty          : false,
-                selectedTab      : "general",
-                fieldCount       : "0",
-                prereqCount      : "0",
-                prereqRolesCount : "0"
+                busy: false,
+                isNew: false,
+                isDirty: false,
+                selectedTab: "general",
+                fieldCount: "0",
+                prereqCount: "0",
+                prereqRolesCount: "0"
             });
             this.getView().setModel(this._oViewModel, "view");
             this.getView().setModel(new JSONModel({ items: [] }), "assigned");
@@ -36,6 +36,8 @@ sap.ui.define([
             // has a real role_id to attach them to on the backend — see
             // onAssignFields / _addStagedFields / _persistPendingFields.
             this._aPendingFields = [];
+            this._aPendingPrereqFields = [];
+            this._aPendingPrereqRoles = [];
 
             this._loadLookups();
 
@@ -67,8 +69,8 @@ sap.ui.define([
         _mdtList: function () {
             return [
                 { key: "CUSTOMER", text: "Customer" },
-                { key: "VENDOR",   text: "Vendor" },
-                { key: "BOTH",     text: "Both" }
+                { key: "VENDOR", text: "Vendor" },
+                { key: "BOTH", text: "Both" }
             ];
         },
         _scopeLabel: function (sKey) {
@@ -87,7 +89,7 @@ sap.ui.define([
         },
         _getMDTKey: function () {
             var oGroup = this.byId("selMDT");
-            var aList  = this._mdtList();
+            var aList = this._mdtList();
             if (!oGroup || !aList.length) { return ""; }
             var i = oGroup.getSelectedIndex();
             return (i >= 0 && i < aList.length) ? aList[i].key : "";
@@ -103,6 +105,8 @@ sap.ui.define([
             this.getView().getModel("prereq").setProperty("/items", []);
             this.getView().getModel("prereqroles").setProperty("/items", []);
             this._aPendingFields = [];
+            this._aPendingPrereqFields = [];
+            this._aPendingPrereqRoles = [];
             this._oViewModel.setProperty("/fieldCount", "0");
             this._oViewModel.setProperty("/prereqCount", "0");
             this._oViewModel.setProperty("/prereqRolesCount", "0");
@@ -116,14 +120,14 @@ sap.ui.define([
 
         _bindRole: function (sId) {
             this._oViewModel.setProperty("/isNew", false);
-            this._oViewModel.setProperty("/busy",  true);
+            this._oViewModel.setProperty("/busy", true);
 
             var sPath = "/BPRoles('" + sId + "')";
             this.getView().bindObject({
-                path      : sPath,
+                path: sPath,
                 parameters: {
-                    $select        : "role_id,description,initial_bp_required,sequence,active,account_scope,master_data_type_master_data_type_id",
-                    $expand        : "master_data_type($select=master_data_type_id,description)",
+                    $select: "role_id,description,initial_bp_required,sequence,active,account_scope,master_data_type_master_data_type_id",
+                    $expand: "master_data_type($select=master_data_type_id,description)",
                     $$updateGroupId: "bpRoleUpdate"
                 },
                 events: {
@@ -157,7 +161,7 @@ sap.ui.define([
 
         _createNew: function () {
             this._oViewModel.setProperty("/isNew", true);
-            this._oViewModel.setProperty("/busy",  false);
+            this._oViewModel.setProperty("/busy", false);
 
             var oModel = this.getOwnerComponent().getModel();
 
@@ -170,7 +174,7 @@ sap.ui.define([
             // If a previous transient context exists (user navigated away
             // without saving), discard it before creating a new one.
             if (this._oCreateListBinding) {
-                try { this._oCreateListBinding.destroy(); } catch (e) {}
+                try { this._oCreateListBinding.destroy(); } catch (e) { }
                 this._oCreateListBinding = null;
             }
 
@@ -178,13 +182,13 @@ sap.ui.define([
                 $$updateGroupId: "bpRoleUpdate"
             });
             var oContext = oListBinding.create({
-                role_id                             : "",
-                description                         : "",
+                role_id: "",
+                description: "",
                 master_data_type_master_data_type_id: "BUSINESS PARTNER",
-                account_scope                       : "CUSTOMER",
-                initial_bp_required                 : false,
-                sequence                            : 1,
-                active                              : true
+                account_scope: "CUSTOMER",
+                initial_bp_required: false,
+                sequence: 1,
+                active: true
             });
             this._oCreateListBinding = oListBinding;
             this.getView().setBindingContext(oContext);
@@ -194,15 +198,15 @@ sap.ui.define([
             // Explicitly clear the input fields to prevent stale values
             // from the previous route visit bleeding through
             var oRoleIdInput = this.byId("inId");
-            var oDescInput   = this.byId("inDescription");
-            var oSeqInput    = this.byId("inSequence");
+            var oDescInput = this.byId("inDescription");
+            var oSeqInput = this.byId("inSequence");
             if (oRoleIdInput) { oRoleIdInput.setValue(""); }
-            if (oDescInput)   { oDescInput.setValue(""); }
-            if (oSeqInput)    { oSeqInput.setValue("1"); }
+            if (oDescInput) { oDescInput.setValue(""); }
+            if (oSeqInput) { oSeqInput.setValue("1"); }
         },
 
         _refreshHeader: function (oData) {
-            var sId   = oData.role_id || "";
+            var sId = oData.role_id || "";
             var sDesc = oData.description || "";
             var sTitle = sId ? (sId + (sDesc ? " \u2014 " + sDesc : "")) : "New BP Role";
 
@@ -240,10 +244,10 @@ sap.ui.define([
         onTabSelect: function (oEvent) {
             var sKey = oEvent.getParameter("key");
             this._oViewModel.setProperty("/selectedTab", sKey);
-            if (sKey === "fields")      { this._loadAssignedFields(); }
-            if (sKey === "prereq")      { this._loadPrereqFields(); }
+            if (sKey === "fields") { this._loadAssignedFields(); }
+            if (sKey === "prereq") { this._loadPrereqFields(); }
             if (sKey === "prereqroles") { this._loadPrereqRoles(); }
-            if (sKey === "changelog")   { this._loadChangeLog(); }
+            if (sKey === "changelog") { this._loadChangeLog(); }
         },
 
         _roleId: function () {
@@ -313,7 +317,7 @@ sap.ui.define([
 
             Promise.all([pPrereq, this._getGroupParentMap()]).then(function (aResults) {
                 var oPrereqSet = aResults[0];
-                var oParentOf  = aResults[1];
+                var oParentOf = aResults[1];
                 return oModel.bindList("/BPRoleFields", null,
                     [
                         new Sorter("field/main_group_group_id"),
@@ -344,18 +348,18 @@ sap.ui.define([
                         var sMain = sSub
                             ? this._findRootGroup(sSub, oParentOf)
                             : (c.getProperty("field/main_group_group_id") || "");
-                        var sFid  = c.getProperty("field_field_id");
+                        var sFid = c.getProperty("field_field_id");
                         return {
-                            field_id       : sFid,
-                            description    : c.getProperty("field/description") || "",
-                            data_type      : c.getProperty("field/data_type")   || "",
-                            main_group     : sMain,
-                            sub_group      : sSub,
+                            field_id: sFid,
+                            description: c.getProperty("field/description") || "",
+                            data_type: c.getProperty("field/data_type") || "",
+                            main_group: sMain,
+                            sub_group: sSub,
                             // group_key drives the table's built-in grouping
-                            group_key      : sMain + "||" + sSub,
-                            group_path     : sMain + (sSub && sSub !== sMain ? " \u25b8 " + sSub : ""),
-                            field_status   : c.getProperty("field_status"),
-                            sequence       : c.getProperty("sequence"),
+                            group_key: sMain + "||" + sSub,
+                            group_path: sMain + (sSub && sSub !== sMain ? " \u25b8 " + sSub : ""),
+                            field_status: c.getProperty("field_status"),
+                            sequence: c.getProperty("sequence"),
                             is_prerequisite: !!oPrereqSet[sFid]
                         };
                     }.bind(this));
@@ -363,9 +367,9 @@ sap.ui.define([
                     // Sort client-side: main group → sub group → sequence
                     aItems.sort(function (a, b) {
                         if (a.main_group < b.main_group) { return -1; }
-                        if (a.main_group > b.main_group) { return  1; }
-                        if (a.sub_group  < b.sub_group)  { return -1; }
-                        if (a.sub_group  > b.sub_group)  { return  1; }
+                        if (a.main_group > b.main_group) { return 1; }
+                        if (a.sub_group < b.sub_group) { return -1; }
+                        if (a.sub_group > b.sub_group) { return 1; }
                         return (a.sequence || 0) - (b.sequence || 0);
                     });
 
@@ -391,21 +395,21 @@ sap.ui.define([
         _addStagedFields: function (aNewRows) {
             this._getGroupParentMap().then(function (oParentOf) {
                 var aMapped = aNewRows.map(function (o) {
-                    var sSub  = o.sub_group || "";
+                    var sSub = o.sub_group || "";
                     var sMain = sSub ? this._findRootGroup(sSub, oParentOf) : (o.main_group || "");
                     return {
-                        field_id       : o.field_id,
-                        description    : o.description || "",
-                        data_type      : o.data_type    || "",
-                        display_type   : o.display_type || "",
-                        main_group     : sMain,
-                        sub_group      : sSub,
-                        group_key      : sMain + "||" + sSub,
-                        group_path     : sMain + (sSub && sSub !== sMain ? " ▸ " + sSub : ""),
-                        field_status   : o.field_status,
-                        sequence       : o.sequence,
-                        default_value  : "",
-                        read_only      : false,
+                        field_id: o.field_id,
+                        description: o.description || "",
+                        data_type: o.data_type || "",
+                        display_type: o.display_type || "",
+                        main_group: sMain,
+                        sub_group: sSub,
+                        group_key: sMain + "||" + sSub,
+                        group_path: sMain + (sSub && sSub !== sMain ? " ▸ " + sSub : ""),
+                        field_status: o.field_status,
+                        sequence: o.sequence,
+                        default_value: "",
+                        read_only: false,
                         is_prerequisite: false
                     };
                 }.bind(this));
@@ -448,15 +452,32 @@ sap.ui.define([
             });
             aPending.forEach(function (oRow) {
                 oListBinding.create({
-                    role_role_id  : sRoleId,
+                    role_role_id: sRoleId,
                     field_field_id: oRow.field_id,
-                    field_status  : oRow.field_status,
-                    sequence      : oRow.sequence,
-                    default_value : oRow.default_value || null,
-                    read_only     : !!oRow.read_only
+                    field_status: oRow.field_status,
+                    sequence: oRow.sequence,
+                    default_value: oRow.default_value || null,
+                    read_only: !!oRow.read_only
                 });
             });
             return oModel.submitBatch("bpRoleFieldsCreate");
+        },
+
+        _persistPendingPrereqs: function (sRoleId) {
+            var aF = this._aPendingPrereqFields || [];
+            var aR = this._aPendingPrereqRoles || [];
+            if (!aF.length && !aR.length) { return Promise.resolve(); }
+
+            var oModel = this.getOwnerComponent().getModel();
+            var oFB = oModel.bindList("/BPRolePrereqFields", null, [], [], { $$updateGroupId: "bpRolePrereqCreate" });
+            var oRB = oModel.bindList("/BPRoleDependencies", null, [], [], { $$updateGroupId: "bpRolePrereqCreate" });
+            aF.forEach(function (o) {
+                oFB.create({ role_role_id: sRoleId, field_field_id: o.field_id, sequence: o.sequence });
+            });
+            aR.forEach(function (o) {
+                oRB.create({ role_role_id: sRoleId, prerequisite_role_role_id: o.role_id, auto_pull: !!o.auto_pull });
+            });
+            return oModel.submitBatch("bpRolePrereqCreate");
         },
 
         // Apply group header rows to the Field Assignment table by
@@ -468,14 +489,14 @@ sap.ui.define([
             if (!oBinding) { return; }
 
             oBinding.sort([
-                new Sorter("main_group",  false, function (oCtx) {
+                new Sorter("main_group", false, function (oCtx) {
                     // Group by main+sub — return object with key and text for the header
                     var sMain = oCtx.getProperty("main_group") || "\u2014";
-                    var sSub  = oCtx.getProperty("sub_group")  || "";
-                    var sKey  = oCtx.getProperty("group_key");
+                    var sSub = oCtx.getProperty("sub_group") || "";
+                    var sKey = oCtx.getProperty("group_key");
                     // Count how many items share this group (approximate — UI5 passes count to factory)
                     return {
-                        key : sKey,
+                        key: sKey,
                         text: sMain + (sSub && sSub !== sMain ? " \u25b8 " + sSub : "")
                     };
                 }),
@@ -488,22 +509,23 @@ sap.ui.define([
         // has a Sorter with group: true.  oGroup.key = "MAIN||SUB".
         // Returns a GroupHeaderListItem showing the wireframe style header.
         createFieldGroupHeader: function (oGroup) {
-            var sKey   = oGroup.key  || "";
+            var sKey = oGroup.key || "";
             var iCount = oGroup.count || 0;
             // Reconstruct display text from the key
             var aParts = sKey.split("||");
-            var sMain  = aParts[0] || "\u2014";
-            var sSub   = aParts[1] || "";
+            var sMain = aParts[0] || "\u2014";
+            var sSub = aParts[1] || "";
             var sDisplay = sMain + (sSub && sSub !== sMain ? " \u25b8 " + sSub : "");
-            var sTitle   = sDisplay + (iCount ? "\u2002\u00b7\u2002" + iCount + " field" + (iCount !== 1 ? "s" : "") : "");
+            var sTitle = sDisplay + (iCount ? "\u2002\u00b7\u2002" + iCount + " field" + (iCount !== 1 ? "s" : "") : "");
             return new sap.m.GroupHeaderListItem({
-                title    : sTitle,
+                title: sTitle,
                 upperCase: false
             });
         },
 
         // ── Prerequisite Fields tab ──────────────────────────────────
         _loadPrereqFields: function () {
+            if (this._oViewModel.getProperty("/isNew")) { return; }
             var sRole = this._roleId();
             if (!sRole) { return; }
             var oModel = this.getOwnerComponent().getModel();
@@ -515,16 +537,16 @@ sap.ui.define([
                     $select: "role_role_id,field_field_id,sequence"
                 }).requestContexts(0, Infinity).then(function (aCtx) {
                     var aItems = aCtx.map(function (c) {
-                        var sSub  = c.getProperty("field/sub_group_group_id") || "";
+                        var sSub = c.getProperty("field/sub_group_group_id") || "";
                         var sMain = sSub
                             ? this._findRootGroup(sSub, oParentOf)
                             : (c.getProperty("field/main_group_group_id") || "");
                         return {
-                            field_id   : c.getProperty("field_field_id"),
+                            field_id: c.getProperty("field_field_id"),
                             description: c.getProperty("field/description") || "",
-                            data_type  : c.getProperty("field/data_type") || "",
-                            group_path : (sMain + (sSub && sSub !== sMain ? " \u25b8 " + sSub : "")) || "\u2014",
-                            sequence   : c.getProperty("sequence")
+                            data_type: c.getProperty("field/data_type") || "",
+                            group_path: (sMain + (sSub && sSub !== sMain ? " \u25b8 " + sSub : "")) || "\u2014",
+                            sequence: c.getProperty("sequence")
                         };
                     }.bind(this));
                     this.getView().getModel("prereq").setProperty("/items", aItems);
@@ -537,6 +559,7 @@ sap.ui.define([
 
         // ── Prerequisite Roles tab ───────────────────────────────────
         _loadPrereqRoles: function () {
+            if (this._oViewModel.getProperty("/isNew")) { return; }
             var sRole = this._roleId();
             if (!sRole) { return; }
             var oModel = this.getOwnerComponent().getModel();
@@ -548,10 +571,10 @@ sap.ui.define([
             }).requestContexts(0, Infinity).then(function (aCtx) {
                 var aItems = aCtx.map(function (c) {
                     return {
-                        role_id    : c.getProperty("prerequisite_role_role_id"),
+                        role_id: c.getProperty("prerequisite_role_role_id"),
                         description: c.getProperty("prerequisite_role/description") || "",
-                        mdt        : this._scopeLabel(c.getProperty("prerequisite_role/account_scope")),
-                        auto_pull  : c.getProperty("auto_pull")
+                        mdt: this._scopeLabel(c.getProperty("prerequisite_role/account_scope")),
+                        auto_pull: c.getProperty("auto_pull")
                     };
                 }.bind(this));
                 this.getView().getModel("prereqroles").setProperty("/items", aItems);
@@ -595,12 +618,12 @@ sap.ui.define([
         },
 
         onRemoveAssignedField: function (oEvent) {
-            var oCtx     = oEvent.getSource().getBindingContext("assigned");
+            var oCtx = oEvent.getSource().getBindingContext("assigned");
             var oRowData = oCtx.getObject();
             var sFieldId = oRowData.field_id;
-            var bIsNew   = this._oViewModel.getProperty("/isNew");
+            var bIsNew = this._oViewModel.getProperty("/isNew");
             MessageBox.confirm("Remove \u201c" + sFieldId + "\u201d from this role's Field Assignment?", {
-                title  : "Remove Field",
+                title: "Remove Field",
                 onClose: function (sAction) {
                     if (sAction !== MessageBox.Action.OK) { return; }
                     if (bIsNew) {
@@ -609,40 +632,50 @@ sap.ui.define([
                     }
                     this._deleteJunctionRow({
                         collection: "/BPRoleFields",
-                        keys      : { role_role_id: this._roleId(), field_field_id: sFieldId },
-                        reload    : this._loadAssignedFields.bind(this)
+                        keys: { role_role_id: this._roleId(), field_field_id: sFieldId },
+                        reload: this._loadAssignedFields.bind(this)
                     });
                 }.bind(this)
             });
         },
 
         onRemovePrereqField: function (oEvent) {
-            var oCtx     = oEvent.getSource().getBindingContext("prereq");
+            var oCtx = oEvent.getSource().getBindingContext("prereq");
             var sFieldId = oCtx.getProperty("field_id");
             MessageBox.confirm("Remove \u201c" + sFieldId + "\u201d from the prerequisite fields?", {
-                title  : "Remove Prerequisite Field",
+                title: "Remove Prerequisite Field",
                 onClose: function (sAction) {
                     if (sAction !== MessageBox.Action.OK) { return; }
+                    if (this._oViewModel.getProperty("/isNew")) {
+                        this._aPendingPrereqFields = this._aPendingPrereqFields.filter(function (o) { return o.field_id !== sFieldId; });
+                        this._refreshPrereqFieldsFromPending();
+                        return;
+                    }
                     this._deleteJunctionRow({
                         collection: "/BPRolePrereqFields",
-                        keys      : { role_role_id: this._roleId(), field_field_id: sFieldId },
-                        reload    : this._loadPrereqFields.bind(this)
+                        keys: { role_role_id: this._roleId(), field_field_id: sFieldId },
+                        reload: this._loadPrereqFields.bind(this)
                     });
                 }.bind(this)
             });
         },
 
         onRemovePrereqRole: function (oEvent) {
-            var oCtx    = oEvent.getSource().getBindingContext("prereqroles");
+            var oCtx = oEvent.getSource().getBindingContext("prereqroles");
             var sRoleId = oCtx.getProperty("role_id");
             MessageBox.confirm("Remove \u201c" + sRoleId + "\u201d as a prerequisite role?", {
-                title  : "Remove Prerequisite Role",
+                title: "Remove Prerequisite Role",
                 onClose: function (sAction) {
                     if (sAction !== MessageBox.Action.OK) { return; }
+                    if (this._oViewModel.getProperty("/isNew")) {
+                        this._aPendingPrereqRoles = this._aPendingPrereqRoles.filter(function (o) { return o.role_id !== sRoleId; });
+                        this._refreshPrereqRolesFromPending();
+                        return;
+                    }
                     this._deleteJunctionRow({
                         collection: "/BPRoleDependencies",
-                        keys      : { role_role_id: this._roleId(), prerequisite_role_role_id: sRoleId },
-                        reload    : this._loadPrereqRoles.bind(this)
+                        keys: { role_role_id: this._roleId(), prerequisite_role_role_id: sRoleId },
+                        reload: this._loadPrereqRoles.bind(this)
                     });
                 }.bind(this)
             });
@@ -655,8 +688,8 @@ sap.ui.define([
             // Populate managed-field strip from the entity binding context
             var oCtx = this.getView().getBindingContext();
             if (oCtx) {
-                this._oViewModel.setProperty("/clCreatedAt",  this._fmtDate(oCtx.getProperty("createdAt")));
-                this._oViewModel.setProperty("/clCreatedBy",  oCtx.getProperty("createdBy")  || "\u2014");
+                this._oViewModel.setProperty("/clCreatedAt", this._fmtDate(oCtx.getProperty("createdAt")));
+                this._oViewModel.setProperty("/clCreatedBy", oCtx.getProperty("createdBy") || "\u2014");
                 this._oViewModel.setProperty("/clModifiedAt", this._fmtDate(oCtx.getProperty("modifiedAt")));
                 this._oViewModel.setProperty("/clModifiedBy", oCtx.getProperty("modifiedBy") || "\u2014");
             }
@@ -665,7 +698,7 @@ sap.ui.define([
             if (!oBinding) { return; }
             oBinding.filter([
                 new Filter("entity_name", FilterOperator.EQ, "BPRole"),
-                new Filter("entity_key",  FilterOperator.EQ, sRole)
+                new Filter("entity_key", FilterOperator.EQ, sRole)
             ]);
             oBinding.sort(new Sorter("acted_at", true));
             oBinding.resume();
@@ -684,22 +717,22 @@ sap.ui.define([
                 // row directly rather than an OData context that doesn't
                 // exist on the backend yet.
                 this._openFieldAssignmentEdit({
-                    stageOnly   : true,
-                    pendingRow  : oRowData,
+                    stageOnly: true,
+                    pendingRow: oRowData,
                     showReadOnly: true,
-                    onDone      : this._refreshAssignedFromPending.bind(this),
-                    onRemove    : this._removeStagedField.bind(this, oRowData)
+                    onDone: this._refreshAssignedFromPending.bind(this),
+                    onRemove: this._removeStagedField.bind(this, oRowData)
                 });
                 return;
             }
             this._openFieldAssignmentEdit({
-                collection   : "/BPRoleFields",
-                fkName       : "role_role_id",
-                fkValue      : this._roleId(),
-                fieldId      : oRowData.field_id,
+                collection: "/BPRoleFields",
+                fkName: "role_role_id",
+                fkValue: this._roleId(),
+                fieldId: oRowData.field_id,
                 updateGroupId: "bpRoleUpdate",
-                showReadOnly : true,
-                onDone       : this._loadAssignedFields.bind(this)
+                showReadOnly: true,
+                onDone: this._loadAssignedFields.bind(this)
             });
         },
         onFieldLinkPress: function (oEvent) {
@@ -731,52 +764,90 @@ sap.ui.define([
                 // at — stage the picks locally instead; _persistPendingFields
                 // creates them for real once the role itself is saved.
                 this._openAssignFields({
-                    collection   : "/BPRoleFields",
-                    stageOnly    : true,
-                    assignedIds  : aItems.map(function (o) { return o.field_id; }),
-                    maxSequence  : iMaxSeq,
+                    collection: "/BPRoleFields",
+                    stageOnly: true,
+                    assignedIds: aItems.map(function (o) { return o.field_id; }),
+                    maxSequence: iMaxSeq,
                     includeStatus: true,
-                    dialogTitle  : "Assign Fields",
-                    onDone       : this._addStagedFields.bind(this)
+                    dialogTitle: "Assign Fields",
+                    onDone: this._addStagedFields.bind(this)
                 });
                 return;
             }
 
             this._openAssignFields({
-                collection   : "/BPRoleFields",
-                fkName       : "role_role_id",
-                fkValue      : this._roleId(),
+                collection: "/BPRoleFields",
+                fkName: "role_role_id",
+                fkValue: this._roleId(),
                 updateGroupId: "bpRoleUpdate",
-                assignedIds  : aItems.map(function (o) { return o.field_id; }),
-                maxSequence  : iMaxSeq,
+                assignedIds: aItems.map(function (o) { return o.field_id; }),
+                maxSequence: iMaxSeq,
                 includeStatus: true,
-                dialogTitle  : "Assign Fields",
-                extraProps   : function () { return { read_only: false }; },
-                onDone       : this._loadAssignedFields.bind(this)
+                dialogTitle: "Assign Fields",
+                extraProps: function () { return { read_only: false }; },
+                onDone: this._loadAssignedFields.bind(this)
             });
         },
         onAddPrereq: function () {
-            var sRole = this._roleId();
-            if (!sRole) { MessageToast.show("Save the role first."); return; }
+            var bNew = this._oViewModel.getProperty("/isNew");
             var aItems = this.getView().getModel("prereq").getProperty("/items") || [];
             var iMaxSeq = aItems.reduce(function (m, o) {
                 return Math.max(m, parseInt(o.sequence, 10) || 0);
             }, 0);
+
+            if (bNew) {
+                this._openAssignFields({
+                    collection: "/BPRolePrereqFields",
+                    stageOnly: true,
+                    assignedIds: aItems.map(function (o) { return o.field_id; }),
+                    maxSequence: iMaxSeq,
+                    includeStatus: false,
+                    dialogTitle: "Add Prerequisite Fields",
+                    onDone: this._addStagedPrereqFields.bind(this)
+                });
+                return;
+            }
             this._openAssignFields({
-                collection   : "/BPRolePrereqFields",
-                fkName        : "role_role_id",
-                fkValue       : sRole,
-                updateGroupId : "bpRoleUpdate",
-                assignedIds   : aItems.map(function (o) { return o.field_id; }),
-                maxSequence   : iMaxSeq,
-                includeStatus : false,
-                dialogTitle   : "Add Prerequisite Fields",
-                onDone        : this._loadPrereqFields.bind(this)
+                collection: "/BPRolePrereqFields",
+                fkName: "role_role_id",
+                fkValue: this._roleId(),
+                updateGroupId: "bpRoleUpdate",
+                assignedIds: aItems.map(function (o) { return o.field_id; }),
+                maxSequence: iMaxSeq,
+                includeStatus: false,
+                dialogTitle: "Add Prerequisite Fields",
+                onDone: this._loadPrereqFields.bind(this)
             });
+        },
+
+        _addStagedPrereqFields: function (aNewRows) {
+            this._getGroupParentMap().then(function (oParentOf) {
+                var aMapped = aNewRows.map(function (o) {
+                    var sSub = o.sub_group || "";
+                    var sMain = sSub ? this._findRootGroup(sSub, oParentOf) : (o.main_group || "");
+                    return {
+                        field_id: o.field_id,
+                        description: o.description || "",
+                        data_type: o.data_type || "",
+                        group_path: (sMain + (sSub && sSub !== sMain ? " \u25b8 " + sSub : "")) || "\u2014",
+                        sequence: o.sequence
+                    };
+                }.bind(this));
+                this._aPendingPrereqFields = (this._aPendingPrereqFields || []).concat(aMapped);
+                this._refreshPrereqFieldsFromPending();
+                this._oViewModel.setProperty("/isDirty", true);
+                MessageToast.show(aNewRows.length + " prerequisite field(s) added — they'll be saved with the role.");
+            }.bind(this));
+        },
+
+        _refreshPrereqFieldsFromPending: function () {
+            var a = (this._aPendingPrereqFields || []).slice();
+            this.getView().getModel("prereq").setProperty("/items", a);
+            this._oViewModel.setProperty("/prereqCount", String(a.length));
         },
         onAddPrereqRole: function () {
             var sRole = this._roleId();
-            if (!sRole) { MessageToast.show("Save the role first."); return; }
+
 
             var fnAfterLoad = function () {
                 this._loadAvailablePrereqRoles().then(function () {
@@ -791,8 +862,8 @@ sap.ui.define([
 
             sap.ui.require(["sap/ui/core/Fragment"], function (Fragment) {
                 Fragment.load({
-                    id        : this.getView().getId(),
-                    name      : "mdm.portal.view.Fragment.AddPrereqRoleDialog",
+                    id: this.getView().getId(),
+                    name: "mdm.portal.view.Fragment.AddPrereqRoleDialog",
                     controller: this
                 }).then(function (oDialog) {
                     this._oPrereqRoleDialog = oDialog;
@@ -823,9 +894,9 @@ sap.ui.define([
                     .filter(function (c) { return !oExclude[c.getProperty("role_id")]; })
                     .map(function (c) {
                         return {
-                            role_id    : c.getProperty("role_id"),
+                            role_id: c.getProperty("role_id"),
                             description: c.getProperty("description") || "",
-                            mdt        : this._scopeLabel(c.getProperty("account_scope"))
+                            mdt: this._scopeLabel(c.getProperty("account_scope"))
                         };
                     }.bind(this));
                 var oRdlg = this.getView().getModel("rdlg");
@@ -843,7 +914,7 @@ sap.ui.define([
             if (!sQuery) { oRdlg.setProperty("/availableRoles", aAll); return; }
             oRdlg.setProperty("/availableRoles", aAll.filter(function (o) {
                 return o.role_id.toLowerCase().indexOf(sQuery) !== -1 ||
-                       o.description.toLowerCase().indexOf(sQuery) !== -1;
+                    o.description.toLowerCase().indexOf(sQuery) !== -1;
             }));
         },
 
@@ -853,8 +924,21 @@ sap.ui.define([
             if (!aSelected.length) { MessageToast.show("Select at least one role."); return; }
 
             var bAutoPull = this.byId("dlgAutoPull").getSelected();
-            var sRole     = this._roleId();
-            var oModel    = this.getOwnerComponent().getModel();
+            if (this._oViewModel.getProperty("/isNew")) {
+                var bPull = this.byId("dlgAutoPull").getSelected();
+                var aRows = aSelected.map(function (oItem) {
+                    var o = oItem.getBindingContext("rdlg").getObject();
+                    return { role_id: o.role_id, description: o.description, mdt: o.mdt, auto_pull: bPull };
+                });
+                this._aPendingPrereqRoles = (this._aPendingPrereqRoles || []).concat(aRows);
+                this._refreshPrereqRolesFromPending();
+                this._oViewModel.setProperty("/isDirty", true);
+                this._oPrereqRoleDialog.close();
+                MessageToast.show(aRows.length + " prerequisite role(s) added — they'll be saved with the role.");
+                return;
+            }
+            var sRole = this._roleId();
+            var oModel = this.getOwnerComponent().getModel();
             var oListBinding = oModel.bindList("/BPRoleDependencies", null, [], [], {
                 $$updateGroupId: "bpRoleUpdate"
             });
@@ -862,9 +946,9 @@ sap.ui.define([
             aSelected.forEach(function (oItem) {
                 var sPreId = oItem.getBindingContext("rdlg").getProperty("role_id");
                 oListBinding.create({
-                    role_role_id                 : sRole,
-                    prerequisite_role_role_id    : sPreId,
-                    auto_pull                    : bAutoPull
+                    role_role_id: sRole,
+                    prerequisite_role_role_id: sPreId,
+                    auto_pull: bAutoPull
                 });
             });
 
@@ -882,13 +966,17 @@ sap.ui.define([
         onAddPrereqRoleCancel: function () {
             if (this._oPrereqRoleDialog) { this._oPrereqRoleDialog.close(); }
         },
-
+        _refreshPrereqRolesFromPending: function () {
+            var a = (this._aPendingPrereqRoles || []).slice();
+            this.getView().getModel("prereqroles").setProperty("/items", a);
+            this._oViewModel.setProperty("/prereqRolesCount", String(a.length));
+        },
         // ── Save ─────────────────────────────────────────────────────
         onSave: function () {
-            var sId   = this.byId("inId").getValue().trim().toUpperCase();
+            var sId = this.byId("inId").getValue().trim().toUpperCase();
             var sDesc = this.byId("inDescription").getValue().trim();
-            var sMDT  = this._getMDTKey();
-            var sSeq  = this.byId("inSequence").getValue().trim();
+            var sMDT = this._getMDTKey();
+            var sSeq = this.byId("inSequence").getValue().trim();
 
             if (!sId) { MessageBox.error("BP Role Name is required."); return; }
             if (!/^[A-Z0-9_]+$/.test(sId)) {
@@ -901,7 +989,7 @@ sap.ui.define([
 
             this._oViewModel.setProperty("/busy", true);
             var bIsNew = this._oViewModel.getProperty("/isNew");
-            var oCtx   = this.getView().getBindingContext();
+            var oCtx = this.getView().getBindingContext();
 
             if (oCtx) {
                 if (bIsNew) { oCtx.setProperty("role_id", sId); }
@@ -922,19 +1010,19 @@ sap.ui.define([
                     return false;
                 })
                 .then(function (bWasCreated) {
-                    // A newly-created role may have fields staged locally —
-                    // picked before the role had a real role_id to attach
-                    // them to (see onAssignFields / _addStagedFields).
-                    // Persist those for real now.
-                    if (bWasCreated && this._aPendingFields && this._aPendingFields.length) {
+                    var bHas = (this._aPendingFields && this._aPendingFields.length) ||
+                        (this._aPendingPrereqFields && this._aPendingPrereqFields.length) ||
+                        (this._aPendingPrereqRoles && this._aPendingPrereqRoles.length);
+                    if (bWasCreated && bHas) {
                         return this._persistPendingFields(sId)
+                            .then(function () { return this._persistPendingPrereqs(sId); }.bind(this))
                             .then(function () { return { created: true, fieldsFailed: false }; })
                             .catch(function (oErr) { return { created: true, fieldsFailed: true, fieldsError: oErr }; });
                     }
                     return { created: bWasCreated, fieldsFailed: false };
                 }.bind(this))
                 .then(function (oResult) {
-                    this._oViewModel.setProperty("/busy",    false);
+                    this._oViewModel.setProperty("/busy", false);
                     this._oViewModel.setProperty("/isDirty", false);
 
                     if (oResult.created && oResult.fieldsFailed) {
@@ -944,11 +1032,15 @@ sap.ui.define([
                         // navigating away, so nothing is silently lost; the
                         // user can re-add them with the normal flow.
                         this._aPendingFields = [];
+                        this._aPendingPrereqFields = [];
+                        this._aPendingPrereqRoles = [];
                         this._oCreateListBinding = null;
                         this._oViewModel.setProperty("/isNew", false);
                         this._loadAssignedFields();
+                        this._loadPrereqFields();
+                        this._loadPrereqRoles();
                         MessageBox.warning(
-                            "Role saved, but the field assignments could not be saved: " +
+                            "Role saved, but the assignments could not be saved: " +
                             ((oResult.fieldsError && oResult.fieldsError.message) || "Unknown error") +
                             "\n\nPlease re-add them below."
                         );
@@ -956,13 +1048,15 @@ sap.ui.define([
                     }
 
                     MessageToast.show(oResult.created
-                        ? "Role and its field assignments saved successfully."
+                        ? "Role and its assignments saved successfully."
                         : "Role saved successfully.");
 
                     if (oResult.created) {
                         // Delay slightly so the toast actually paints before the
                         // route change tears the page down.
                         this._aPendingFields = [];
+                        this._aPendingPrereqFields = [];
+                        this._aPendingPrereqRoles = [];
                         this._oCreateListBinding = null;
                         setTimeout(this.onNavBack.bind(this), 300);
                     } else if (oCtx) {
@@ -982,6 +1076,8 @@ sap.ui.define([
                 this.getOwnerComponent().getModel().resetChanges("bpRoleUpdate");
                 this._oViewModel.setProperty("/isDirty", false);
                 this._aPendingFields = [];
+                this._aPendingPrereqFields = [];
+                this._aPendingPrereqRoles = [];
                 this.onNavBack();
             }.bind(this);
             if (this._oViewModel.getProperty("/isDirty")) {
@@ -1001,13 +1097,13 @@ sap.ui.define([
                 var oModel = this.getOwnerComponent().getModel();
                 var oListBinding = oModel.bindList("/BPRoles", null, [], [], { $$updateGroupId: "bpRoleUpdate" });
                 var oNewCtx = oListBinding.create({
-                    role_id                             : "",
-                    description                         : oData.description + " (Copy)",
+                    role_id: "",
+                    description: oData.description + " (Copy)",
                     master_data_type_master_data_type_id: oData.master_data_type_master_data_type_id || "BUSINESS PARTNER",
-                    account_scope                       : oData.account_scope || "CUSTOMER",
-                    initial_bp_required                 : oData.initial_bp_required,
-                    sequence                            : (oData.sequence || 0) + 1,
-                    active                              : false
+                    account_scope: oData.account_scope || "CUSTOMER",
+                    initial_bp_required: oData.initial_bp_required,
+                    sequence: (oData.sequence || 0) + 1,
+                    active: false
                 });
                 this._oCreateListBinding = oListBinding;
                 // Unbind the source record's object binding (set by the _bind* view
@@ -1016,9 +1112,15 @@ sap.ui.define([
                 this.getView().unbindObject();
                 this.getView().setBindingContext(oNewCtx);
                 this._aPendingFields = [];
+                this._aPendingPrereqFields = [];
+                this._aPendingPrereqRoles = [];
                 this.getView().getModel("assigned").setProperty("/items", []);
+                this.getView().getModel("prereq").setProperty("/items", []);
+                this.getView().getModel("prereqroles").setProperty("/items", []);
                 this._oViewModel.setProperty("/fieldCount", "0");
-                this._oViewModel.setProperty("/isNew",   true);
+                this._oViewModel.setProperty("/prereqCount", "0");
+                this._oViewModel.setProperty("/prereqRolesCount", "0");
+                this._oViewModel.setProperty("/isNew", true);
                 this._oViewModel.setProperty("/isDirty", true);
                 this.byId("selMDT").setSelectedIndex(this.formatScopeIndex(oData.account_scope || "CUSTOMER"));
                 this._refreshHeader({ role_id: "", description: oData.description + " (Copy)", active: false });

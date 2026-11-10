@@ -112,6 +112,21 @@ entity ValueTable : managed {
         status          : ActiveStatus not null;
 }
 
+// General value-list data, loaded from the Value List Upload page.
+// Standard upload layout: Table, Area, Field Value 1-5. One file can carry
+// many tables; a value table picks up the rows whose table_name equals its
+// source_table (Backend Table). line_no keeps the file order within a table.
+entity ValueListEntry : managed {
+    key table_name      : String(60);
+    key line_no         : Integer;
+        area            : String(60);
+        field_value_1   : String(200);
+        field_value_2   : String(200);
+        field_value_3   : String(200);
+        field_value_4   : String(200);
+        field_value_5   : String(200);
+}
+
 entity ValidationRule : managed {
     key validation_id   : String(20);
         description     : String(100) not null;

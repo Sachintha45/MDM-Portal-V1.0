@@ -151,7 +151,7 @@
                                 <Title text="Prerequisite Fields (in prompt order)" level="H4"/>
                                 <ToolbarSpacer/>
                                 <Button text="Add Prerequisite" icon="sap-icon://add" type="Transparent"
-                                        press=".onAddPrereq" enabled="{= !${view>/isNew}}"/>
+                                        press=".onAddPrereq" />
                             </Toolbar>
                             <Table id="prereqTable"
                                    noDataText="No prerequisite fields defined."
@@ -191,7 +191,7 @@
                                 <Title text="Prerequisite Roles" level="H4"/>
                                 <ToolbarSpacer/>
                                 <Button text="Add Role" icon="sap-icon://add" type="Transparent"
-                                        press=".onAddPrereqRole" enabled="{= !${view>/isNew}}"/>
+                                        press=".onAddPrereqRole" />
                             </Toolbar>
                            
                             <Table id="prereqRolesTable"

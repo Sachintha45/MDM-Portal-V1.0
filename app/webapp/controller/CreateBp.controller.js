@@ -2184,6 +2184,11 @@ sap.ui.define([
                     || SOURCE_TO_LOOKUP["RF02D_" + f.field_id]
                     || SOURCE_TO_LOOKUP[sSource];
 
+                // No built-in reference list for this table: if the field is
+                // linked to a user-created Value Table, serve its rows from the
+                // Value List Upload data ("UPLOAD:<table>" pseudo entity set).
+                if (!sEntitySet && f.valueTableSource) { sEntitySet = "UPLOAD:" + f.valueTableSource; }
+
                 // Store entity set per field_id so _arePrereqsComplete can validate
                 if (sEntitySet) {
                     this._mFieldEntitySet = this._mFieldEntitySet || {};
@@ -2751,7 +2756,7 @@ sap.ui.define([
             if (!sKey) { return null; }
             return SOURCE_TO_LOOKUP[sKey + "_" + gc.column_name]
                 || SOURCE_TO_LOOKUP[sKey]
-                || null;
+                || (gc.value_table_source ? "UPLOAD:" + gc.value_table_source : null);
         },
 
         // Same data_type/display_type branching as _gridCellControl, but
@@ -3077,6 +3082,35 @@ sap.ui.define([
             if (this._mValueCache[sEntitySet]) { return this._mValueCache[sEntitySet]; }
 
             var oModel = this.getOwnerComponent().getModel();
+
+            // "UPLOAD:<table>" = rows uploaded via the Value List Upload page.
+            // Key/description columns come from the Value Table's Output Columns
+            // (output_key/output_desc), defaulting to Field Value 1 / 2.
+            if (String(sEntitySet).indexOf("UPLOAD:") === 0) {
+                var sTable = sEntitySet.slice(7).toUpperCase();
+                var pUp = oModel.bindList("/ValueTables", null, null, [
+                    new Filter("source_table", FilterOperator.EQ, sTable)
+                ]).requestContexts(0, 1).then(function (aVt) {
+                    var sKeyCol  = (aVt[0] && aVt[0].getProperty("output_key"))  || "field_value_1";
+                    var sDescCol = (aVt[0] && aVt[0].getProperty("output_desc")) || "field_value_2";
+                    return oModel.bindList("/ValueListEntries", null, [new Sorter("line_no")], [
+                        new Filter("table_name", FilterOperator.EQ, sTable)
+                    ]).requestContexts(0, 1000).then(function (aCtx) {
+                        var aVals = [];
+                        aCtx.forEach(function (c) {
+                            var sCode = c.getProperty(sKeyCol);
+                            if (sCode === null || sCode === undefined || sCode === "") { return; }
+                            var sDesc = c.getProperty(sDescCol);
+                            aVals.push({ code: String(sCode), text: String(sCode) + (sDesc ? " \u2014 " + sDesc : "") });
+                        });
+                        this._mValueListCache[sEntitySet] = aVals;
+                        return aVals;
+                    }.bind(this));
+                }.bind(this));
+                this._mValueCache[sEntitySet] = pUp;
+                return pUp;
+            }
+
             var p = oModel.bindList("/" + sEntitySet, null, [new Sorter("code")], [
                 new Filter("active", FilterOperator.EQ, true)
             ]).requestContexts(0, 1000).then(function (aCtx) {

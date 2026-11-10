@@ -171,6 +171,26 @@ sap.ui.define([], function () {
                     return aRows;
                 });
             });
+        },
+
+        /**
+         * Fetches the current user's recent Notification records — what
+         * feeds the ShellBar's notifications popover. Separate from
+         * getMyPendingApprovals: this is a log of what already HAPPENED
+         * ("you were assigned...", "your CR was approved..."), not what
+         * still needs action. Sorted newest first.
+         */
+        getMyNotifications: function (oModel, sUserId, iTop) {
+            var sBase = oModel.getServiceUrl().replace(/\/$/, "");
+            var sEncodedUser = encodeURIComponent(sUserId.replace(/'/g, "''"));
+            // channel eq 'IN_APP' — an EMAIL-channel row exists for the same
+            // event too (see _triggerApprovalWorkflow / _notifyRequesterOfDecision),
+            // tracking that delivery separately. Without this filter every
+            // notification would appear to show up twice in the popover.
+            return _fetchJson(
+                sBase + "/Notifications?$filter=recipient eq '" + sEncodedUser + "' and channel eq 'IN_APP'" +
+                "&$orderby=createdAt desc&$top=" + (iTop || 20)
+            );
         }
     };
 });

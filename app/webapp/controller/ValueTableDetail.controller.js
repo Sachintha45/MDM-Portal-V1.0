@@ -24,12 +24,20 @@ sap.ui.define([
                 isNew       : false,
                 isDirty     : false,
                 selectedTab : "general",
-                usageCount  : "0"
+                usageCount  : "0",
+                entriesCount: "0",
+                entriesInfo : ""
             });
             this.getView().setModel(this._oViewModel, "view");
 
             // Usage list held in a JSON model (loaded on demand)
             this.getView().setModel(new JSONModel({ items: [] }), "usage");
+            // Read-only rows from the Value List Upload page, matched on the
+            // Backend Table (source_table) of this value table.
+            this.getView().setModel(new JSONModel({ items: [] }), "entries");
+            // Tables already uploaded on the Value List Upload page — offered
+            // in the Backend Table dropdown (typing any other name still works).
+            this.getView().setModel(new JSONModel({ items: [] }), "uploaded");
 
             var oRouter = this.getOwnerComponent().getRouter();
             oRouter.getRoute("valueTableDetail").attachPatternMatched(this._onRouteMatched, this);
@@ -45,12 +53,49 @@ sap.ui.define([
             this.byId("detailTabs").setSelectedKey("general");
             this.getView().getModel("usage").setProperty("/items", []);
             this._oViewModel.setProperty("/usageCount", "0");
+            this.getView().getModel("entries").setProperty("/items", []);
+            this._oViewModel.setProperty("/entriesCount", "0");
+
+            this._loadUploadedTables();
 
             if (sId === "NEW") {
                 this._createNew();
+                // Opened from the Value List Upload page ("Create Value Table"):
+                // start the new value table from that uploaded table.
+                var oQuery = oEvent.getParameter("arguments")["?query"] || {};
+                var sTable = (oQuery.sourceTable || "").trim().toUpperCase();
+                if (sTable) {
+                    var oCtx = this.getView().getBindingContext();
+                    if (oCtx) {
+                        oCtx.setProperty("source_table", sTable);
+                        oCtx.setProperty("value_table_id", "VT_" + sTable);
+                    }
+                    this.byId("inId").setValue("VT_" + sTable);
+                    this._oViewModel.setProperty("/isDirty", true);
+                    this._loadEntries();
+                }
             } else {
                 this._bindValueTable(sId);
             }
+        },
+
+        // ── Uploaded tables for the Backend Table dropdown ──────────
+        _loadUploadedTables: function () {
+            var oModel = this.getOwnerComponent().getModel();
+            oModel.bindList("/ValueListSummary", null, [new Sorter("table_name")], [], {
+                $select: "table_name,row_count"
+            }).requestContexts(0, Infinity).then(function (aCtx) {
+                this.getView().getModel("uploaded").setProperty("/items", aCtx.map(function (c) {
+                    return { table_name: c.getProperty("table_name"), row_count: c.getProperty("row_count") };
+                }));
+            }.bind(this)).catch(function () {
+                // the dropdown is only a convenience — typing a name still works
+            });
+        },
+
+        onSourceTableChange: function () {
+            this._oViewModel.setProperty("/isDirty", true);
+            this._loadEntries();
         },
 
         // ── Bind existing ────────────────────────────────────────────
@@ -87,6 +132,7 @@ sap.ui.define([
                             // Load usage count eagerly, right when the record loads
                             // — not lazily on tab-select.
                             this._loadUsage();
+                            this._loadEntries();
                         }.bind(this));
                         // ID is the key — not editable on existing record
                         this.byId("inId").setEditable(false);
@@ -112,8 +158,8 @@ sap.ui.define([
                 input_1       : null,
                 input_2       : null,
                 input_3       : null,
-                output_key    : "",
-                output_desc   : "",
+                output_key    : "field_value_1",
+                output_desc   : "field_value_2",
                 status        : "ACTIVE"
             });
             this._oCreateListBinding = oListBinding;
@@ -185,6 +231,7 @@ sap.ui.define([
             var sKey = oEvent.getParameter("key");
             this._oViewModel.setProperty("/selectedTab", sKey);
             if (sKey === "usage")     { this._loadUsage(); }
+            if (sKey === "entries")   { this._loadEntries(); }
             if (sKey === "changelog") { this._loadChangeLog(); }
         },
 
@@ -254,8 +301,8 @@ sap.ui.define([
             var sId         = this.byId("inId").getValue().trim().toUpperCase();
             var sDesc       = this.byId("inDescription").getValue().trim();
             var sSource     = this.byId("inSourceTable").getValue().trim();
-            var sOutputKey  = this.byId("inOutputKey").getValue().trim();
-            var sOutputDesc = this.byId("inOutputDesc").getValue().trim();
+            var sOutputKey  = this.byId("inOutputKey").getSelectedKey();
+            var sOutputDesc = this.byId("inOutputDesc").getSelectedKey();
 
             // Validation
             if (!sId) {
@@ -275,13 +322,13 @@ sap.ui.define([
                 return;
             }
             if (!sOutputKey) {
-                MessageBox.error("Output Key is required (Field Mapping tab).");
-                this.byId("detailTabs").setSelectedKey("mapping");
+                MessageBox.error("Select the Output Key column (Output Columns tab).");
+                this.byId("detailTabs").setSelectedKey("output");
                 return;
             }
             if (!sOutputDesc) {
-                MessageBox.error("Output Description is required (Field Mapping tab).");
-                this.byId("detailTabs").setSelectedKey("mapping");
+                MessageBox.error("Select the Output Description column (Output Columns tab).");
+                this.byId("detailTabs").setSelectedKey("output");
                 return;
             }
 
@@ -397,11 +444,84 @@ sap.ui.define([
             }.bind(this));
         },
 
+        // ── Value List Data tab (read-only) ──────────────────────────
+        // Shows the uploaded rows whose Table equals this value table's
+        // Backend Table. The data itself is loaded on the Value List Upload page.
+        _loadEntries: function () {
+            var oInput = this.byId("inSourceTable");
+            var sSource = ((oInput && oInput.getValue()) || "").trim().toUpperCase();
+            var oEntries = this.getView().getModel("entries");
+
+            if (!sSource) {
+                oEntries.setProperty("/items", []);
+                this._oViewModel.setProperty("/entriesCount", "0");
+                this._oViewModel.setProperty("/entriesInfo", "Enter a Backend Table on the General tab to see its value list data.");
+                return Promise.resolve();
+            }
+            var oModel = this.getOwnerComponent().getModel();
+            return oModel.bindList("/ValueListEntries", null, [new Sorter("line_no")], [
+                new Filter("table_name", FilterOperator.EQ, sSource)
+            ], {
+                $select: "line_no,area,field_value_1,field_value_2,field_value_3,field_value_4,field_value_5"
+            }).requestContexts(0, Infinity).then(function (aCtx) {
+                var aItems = aCtx.map(function (c) {
+                    return {
+                        line_no: c.getProperty("line_no"),
+                        area: c.getProperty("area") || "",
+                        field_value_1: c.getProperty("field_value_1") || "",
+                        field_value_2: c.getProperty("field_value_2") || "",
+                        field_value_3: c.getProperty("field_value_3") || "",
+                        field_value_4: c.getProperty("field_value_4") || "",
+                        field_value_5: c.getProperty("field_value_5") || ""
+                    };
+                });
+                oEntries.setProperty("/items", aItems);
+                this._oViewModel.setProperty("/entriesCount", String(aItems.length));
+                this._oViewModel.setProperty("/entriesInfo", aItems.length
+                    ? "Showing the uploaded rows of table " + sSource + ". Key = " +
+                      this._colLabel(this.byId("inOutputKey").getSelectedKey()) + ", Description = " +
+                      this._colLabel(this.byId("inOutputDesc").getSelectedKey()) +
+                      ". To change the data, use the Value List Upload page."
+                    : "No uploaded data found for table " + sSource + ". Upload a file on the Value List Upload page with this table name in the Table column.");
+            }.bind(this)).catch(function (e) {
+                MessageBox.error("Could not load value list data: " + (e.message || "Unknown error"));
+            });
+        },
+
+        _colLabel: function (sKey) {
+            var m = { area: "Area", field_value_1: "Field Value 1", field_value_2: "Field Value 2",
+                      field_value_3: "Field Value 3", field_value_4: "Field Value 4", field_value_5: "Field Value 5" };
+            return m[sKey] || sKey || "(not set)";
+        },
+
+        // Output Key / Description changed: mark dirty and refresh the hint
+        // on the Value List Data tab.
+        onOutputColumnChange: function () {
+            this._oViewModel.setProperty("/isDirty", true);
+            this._loadEntries();
+        },
+
+        onEntriesSearch: function (oEvent) {
+            var sQuery = (oEvent.getParameter("newValue") || "").trim();
+            var oBinding = this.byId("entriesTable").getBinding("items");
+            if (!oBinding) { return; }
+            if (!sQuery) { oBinding.filter([]); return; }
+            var aFields = ["area", "field_value_1", "field_value_2", "field_value_3", "field_value_4", "field_value_5"];
+            oBinding.filter(new Filter({
+                filters: aFields.map(function (f) { return new Filter(f, FilterOperator.Contains, sQuery); }),
+                and: false
+            }));
+        },
+
+        onOpenUploadPage: function () {
+            this.getOwnerComponent().getRouter().navTo("valueListUpload");
+        },
+
         // ── Test Query ───────────────────────────────────────────────
         onTestQuery: function () {
             var sSource     = this.byId("inSourceTable").getValue().trim();
-            var sOutputKey  = this.byId("inOutputKey").getValue().trim();
-            var sOutputDesc = this.byId("inOutputDesc").getValue().trim();
+            var sOutputKey  = this.byId("inOutputKey").getSelectedKey();
+            var sOutputDesc = this.byId("inOutputDesc").getSelectedKey();
 
             if (!sSource) {
                 MessageBox.warning("Enter a Backend Table before testing the query.");
@@ -416,16 +536,61 @@ sap.ui.define([
             // query against sSource. Here we surface the would-be query for review.
             MessageBox.information(
                 "Sample query prepared:\n\n" +
-                "SELECT " + sOutputKey + ", " + sOutputDesc + "\n" +
-                "FROM " + sSource + "\n\n" +
-                "Connect the backend validation action to run this against the source system.",
+                "SELECT " + sOutputKey + " AS key, " + sOutputDesc + " AS text\n" +
+                "FROM ValueListEntry\n" +
+                "WHERE table_name = '" + sSource.toUpperCase() + "'\n\n" +
+                "Key = " + this._colLabel(sOutputKey) + ", Description = " + this._colLabel(sOutputDesc) + ".",
                 { title: "Test Query" }
             );
         },
 
-        // ── Backend table value help (stub) ──────────────────────────
+        // ── Backend table value help ─────────────────────────────────
+        // Lists the tables that have been uploaded on the Value List Upload
+        // page, so the Backend Table always matches the uploaded Table name.
         onSourceTableValueHelp: function () {
-            MessageToast.show("Backend table search help — connect to the SAP DDIC catalog.");
+            var oModel = this.getOwnerComponent().getModel();
+            oModel.bindList("/ValueListSummary", null, [new Sorter("table_name")], [], {
+                $select: "table_name,row_count"
+            }).requestContexts(0, Infinity).then(function (aCtx) {
+                if (!aCtx.length) {
+                    MessageToast.show("No tables uploaded yet \u2014 use Value List Upload first, or type the table name.");
+                    return;
+                }
+                var aItems = aCtx.map(function (c) {
+                    return { table_name: c.getProperty("table_name"), row_count: c.getProperty("row_count") };
+                });
+                sap.ui.require(["sap/m/SelectDialog", "sap/m/StandardListItem"], function (SelectDialog, StandardListItem) {
+                    var oDialog = new SelectDialog({
+                        title: "Select Backend Table",
+                        items: {
+                            path: "vh>/items",
+                            template: new StandardListItem({
+                                title: "{vh>table_name}",
+                                description: "{vh>row_count} uploaded row(s)"
+                            })
+                        },
+                        search: function (oEvt) {
+                            var sVal = oEvt.getParameter("value");
+                            oEvt.getSource().getBinding("items").filter(
+                                sVal ? [new Filter("table_name", FilterOperator.Contains, sVal.toUpperCase())] : []);
+                        },
+                        confirm: function (oEvt) {
+                            var oItem = oEvt.getParameter("selectedItem");
+                            if (!oItem) { return; }
+                            this.byId("inSourceTable").setValue(oItem.getTitle());
+                            this._oViewModel.setProperty("/isDirty", true);
+                            this._loadEntries();
+                        }.bind(this),
+                        cancel: function () { },
+                        afterClose: function () { oDialog.destroy(); }
+                    });
+                    oDialog.setModel(new JSONModel({ items: aItems }), "vh");
+                    this.getView().addDependent(oDialog);
+                    oDialog.open();
+                }.bind(this));
+            }.bind(this)).catch(function (e) {
+                MessageBox.error("Could not load uploaded tables: " + (e.message || "Unknown error"));
+            });
         },
 
         // ── Navigation ───────────────────────────────────────────────

@@ -118,6 +118,108 @@ class MDMPortalService extends cds.ApplicationService {
             return { success: true, message: `${aRows.length} attachment(s) saved.`, saved: aRows.length };
         });
 
+        // =====================================================================
+        //  UploadValueList — general value-list upload (Table, Area, Field
+        //  Value 1-5). One file may hold rows of many tables. Runs in the
+        //  request's transaction, so a failed insert never leaves a table
+        //  half-replaced.
+        // =====================================================================
+        this.on('UploadValueList', async (req) => {
+            const { rows = [], tables = [] } = req.data;
+            const sMode = String(req.data.mode || 'REPLACE').toUpperCase();
+            if (!['REPLACE', 'APPEND', 'CLEAR'].includes(sMode)) {
+                return req.error(400, `Unknown mode "${sMode}" — use REPLACE, APPEND or CLEAR`);
+            }
+            const ENTRY = 'mdm.portal.ValueListEntry';
+            const actor = req.user?.id || 'system';
+            const dNow = new Date().toISOString();
+            const clip = (v, n) => (v === null || v === undefined) ? null : String(v).trim().slice(0, n);
+            const tbl = (v) => (clip(v, 60) || '').toUpperCase();
+
+            if (sMode === 'CLEAR') {
+                const aT = [...new Set(tables.map(tbl).filter(Boolean))];
+                if (!aT.length) { return req.error(400, 'No table given to clear'); }
+                await DELETE.from(ENTRY).where({ table_name: { in: aT } });
+                return { success: true, message: `Data of ${aT.join(', ')} removed.`, inserted: 0, tables: aT.length };
+            }
+
+            // Group the incoming rows per table.
+            const mByTable = {};
+            for (let i = 0; i < rows.length; i++) {
+                const t = tbl(rows[i].table_name);
+                if (!t) { return req.error(400, `Row ${i + 1} has no Table value`); }
+                (mByTable[t] = mByTable[t] || []).push(rows[i]);
+            }
+            const aTables = Object.keys(mByTable);
+            if (!aTables.length) { return req.error(400, 'The upload contains no rows'); }
+
+            // Area = Master Data Type. Accept its id (BUSINESS PARTNER), its
+            // object class (BP) or its description, in any letter case, and
+            // store the canonical master_data_type_id. Blank area is allowed
+            // (row applies to every master data type); anything unknown is
+            // rejected so typos can't create orphan values.
+            const aMdt = await SELECT.from('mdm.portal.MasterDataType')
+                .columns('master_data_type_id', 'object_class', 'description');
+            const mMdt = {};
+            aMdt.forEach(m => {
+                [m.master_data_type_id, m.object_class, m.description].forEach(k => {
+                    if (k) { mMdt[String(k).trim().toUpperCase()] = m.master_data_type_id; }
+                });
+            });
+            const aBadArea = new Set();
+            rows.forEach(r => {
+                const a = clip(r.area, 60);
+                if (!a) { r.area = null; return; }
+                const hit = mMdt[a.toUpperCase()];
+                if (hit) { r.area = hit; } else { aBadArea.add(a); }
+            });
+            if (aBadArea.size) {
+                return req.error(400, `Unknown Area (master data type): ${[...aBadArea].join(', ')}. ` +
+                    `Valid values: ${aMdt.map(m => m.object_class || m.master_data_type_id).join(', ')}`);
+            }
+
+            if (sMode === 'REPLACE') {
+                await DELETE.from(ENTRY).where({ table_name: { in: aTables } });
+            }
+            const mStart = {};
+            if (sMode === 'APPEND') {
+                const aMax = await SELECT.from(ENTRY).columns('table_name', 'max(line_no) as m')
+                    .where({ table_name: { in: aTables } }).groupBy('table_name');
+                aMax.forEach(r => { mStart[r.table_name] = r.m || 0; });
+            }
+
+            const aOut = [];
+            aTables.forEach((t) => {
+                let n = mStart[t] || 0;
+                mByTable[t].forEach((r) => {
+                    const o = {
+                        table_name: t,
+                        line_no: 0,
+                        area: clip(r.area, 60),
+                        field_value_1: clip(r.field_value_1, 200),
+                        field_value_2: clip(r.field_value_2, 200),
+                        field_value_3: clip(r.field_value_3, 200),
+                        field_value_4: clip(r.field_value_4, 200),
+                        field_value_5: clip(r.field_value_5, 200),
+                        createdAt: dNow, createdBy: actor, modifiedAt: dNow, modifiedBy: actor
+                    };
+                    if ([o.field_value_1, o.field_value_2, o.field_value_3, o.field_value_4, o.field_value_5].some(v => v)) {
+                        o.line_no = ++n;
+                        aOut.push(o);
+                    }
+                });
+            });
+
+            // Insert in chunks to stay below the DB driver's bound-variable limit.
+            const CHUNK = 200;
+            for (let i = 0; i < aOut.length; i += CHUNK) {
+                await INSERT.into(ENTRY).entries(aOut.slice(i, i + CHUNK));
+            }
+            console.log(`[UploadValueList] ${sMode} ${aOut.length} row(s) for ${aTables.join(', ')}`);
+            return { success: true, message: `${aOut.length} row(s) saved for ${aTables.length} table(s).`,
+                     inserted: aOut.length, tables: aTables.length };
+        });
+
         this.on('DeleteChangeRequest', async (req) => {
             const { cr_id, reason } = req.data;
             const db = cds.db;
