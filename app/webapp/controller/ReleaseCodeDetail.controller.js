@@ -338,7 +338,20 @@ sap.ui.define([
                                 }
                                 this._createUser(sUserId, sType, bActive);
                             } else {
-                                this._updateUser(oCtxBeingEdited, sType, bActive);
+                                var sOldUserId = oCtxBeingEdited.getProperty("user_id");
+                                if (sUserId !== sOldUserId) {
+                                    // User ID is part of the key, so it can't be PATCHed: replace the row.
+                                    var bExists = this._getLoadedUserRows().some(function (o) {
+                                        return o.user_id === sUserId;
+                                    });
+                                    if (bExists) {
+                                        MessageBox.error("User \"" + sUserId + "\" is already assigned to this release code.");
+                                        return;
+                                    }
+                                    this._replaceUser(oCtxBeingEdited, sUserId, sType, bActive);
+                                } else {
+                                    this._updateUser(oCtxBeingEdited, sType, bActive);
+                                }
                             }
 
                             this._oUserDialog.close();

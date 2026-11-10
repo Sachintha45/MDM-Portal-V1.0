@@ -104,10 +104,10 @@
                                 <Title text="Additional Field Assignment" level="H4"/>
                                 <ToolbarSpacer/>
                                 <Button text="Assign Field" icon="sap-icon://add" type="Emphasized"
-                                        press=".onAssignFields" enabled="{= !${view>/isNew}}"/>
+                                        press=".onAssignFields"/>
                             </Toolbar>
                             <Table id="fieldsTable"
-                                   noDataText="{= ${view>/isNew} ? 'Save the account group first to assign fields.' : 'No additional fields assigned yet.'}"
+                                   noDataText="{= ${view>/isNew} ? 'No fields added yet — anything you assign here is saved together with the account group.' : 'No additional fields assigned yet.'}"
                                    fixedLayout="true" alternateRowColors="true"
                                    items="{assigned>/items}">
                                 <columns>

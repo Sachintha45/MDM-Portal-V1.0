@@ -122,8 +122,13 @@
                 },
                 {
                     "name": "valueTableDetail",
-                    "pattern": "valuetables/{valueTableId}",
+                    "pattern": "valuetables/{valueTableId}:?query:",
                     "target": "valueTableDetail"
+                },
+                {
+                    "name": "valueListUpload",
+                    "pattern": "valuelistupload",
+                    "target": "valueListUpload"
                 },
                 {
                     "name": "validationRules",
@@ -293,6 +298,10 @@
                 },
                 "valueTableDetail": {
                     "viewName": "ValueTableDetail",
+                    "viewLevel": 2
+                },
+                "valueListUpload": {
+                    "viewName": "ValueListUpload",
                     "viewLevel": 2
                 },
                 "validationRuleDetail": {

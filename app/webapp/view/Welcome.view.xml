@@ -56,6 +56,15 @@
                     </GenericTile>
 
                     <GenericTile frameType="TwoByOne" class="sapUiTinyMargin" press=".onTilePress"
+                                 header="Value List Upload"
+                                 subheader="Upload value help data (Table, Area, Field Values) for all value tables.">
+                        <customData>
+                            <core:CustomData key="route" value="valueListUpload"/>
+                        </customData>
+                        <TileContent><core:Icon src="sap-icon://upload" size="1.5rem"/></TileContent>
+                    </GenericTile>
+
+                    <GenericTile frameType="TwoByOne" class="sapUiTinyMargin" press=".onTilePress"
                                  header="BP Categories"
                                  subheader="Classify Business Partners as Person, Organization, or Group.">
                         <customData>

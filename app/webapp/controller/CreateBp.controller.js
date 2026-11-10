@@ -128,9 +128,9 @@ sap.ui.define([
             oRt.setProperty("/crId", sCrId);
             oRt.setProperty("/status", "Draft");
             oRt.setProperty("/subtitle", "Editing draft \u2014 " + sCrId);
-            var sUrl = this.getOwnerComponent().getModel().getServiceUrl().replace(//$/, "")
-                "/ChangeRequests('" + encodeURIComponent(sCrId) + "')"
-"?$expand=bp_roles,field_values";
+            var sUrl = this.getOwnerComponent().getModel().getServiceUrl().replace(/\/$/, "") +
+                "/ChangeRequests('" + encodeURIComponent(sCrId) + "')" +
+                "?$expand=bp_roles,field_values";
             fetch(sUrl, { headers: { Accept: "application/json" } })
                 .then(function (r) {
                     if (!r.ok) { throw new Error("HTTP " + r.status); }
@@ -260,7 +260,7 @@ sap.ui.define([
                     // So they're visible when editing, and included on re-save
                     // without the user having to re-attach them.
                     var oModel = this.getOwnerComponent().getModel();
-                    var sBase = oModel.getServiceUrl().replace(//$/, "");
+                    var sBase = oModel.getServiceUrl().replace(/\/$/, "");
                         fetch(sBase + "/CRAttachments?$filter=cr_cr_id eq '" +
                             encodeURIComponent(sCrId) + "'&$select=file_name,mime_type,size_bytes",
                             { headers: { Accept: "application/json" } })
@@ -416,7 +416,7 @@ sap.ui.define([
                             item.hasPrereq = aRolesWithPrereq.has(item.key);
                         });
                         this.getView().getModel("roles").setProperty("/items", aUpdated);
-                    }.bind(this)).catch(function () { /* non-fatal / });
+                    }.bind(this)).catch(function () { /* non-fatal */ });
 }.bind(this)).catch(this._loadError("roles"));
 // Account Groups
 oModel.bindList("/AccountGroups", null, [new Sorter("account_group_id")], [
@@ -615,7 +615,7 @@ if ((this._oRt.getProperty("/roleKeys") || []).length) {
 this._renderTabsForActiveRole();
 }
 }.bind(this))
-.catch(function () { /* non-fatal — form still works without pre-fill / });
+.catch(function () { /* non-fatal — form still works without pre-fill */ });
 },
 // Pre-fill form values from the existing BP response.
 // Called in EXTEND mode so the user sees existing data in every field.
@@ -1879,6 +1879,9 @@ var sEntitySet = SOURCE_TO_LOOKUP[sSource + "_" + f.field_id]
 || SOURCE_TO_LOOKUP["KNB1_" + f.field_id]
 || SOURCE_TO_LOOKUP["RF02D_" + f.field_id]
 || SOURCE_TO_LOOKUP[sSource];
+// No built-in reference list for this table: if the field is linked to a
+// user-created Value Table, serve its rows from the Value List Upload data.
+if (!sEntitySet && f.valueTableSource) { sEntitySet = "UPLOAD:" + f.valueTableSource; }
 // Store entity set per field_id so _arePrereqsComplete can validate
 if (sEntitySet) {
 this._mFieldEntitySet = this._mFieldEntitySet || {};
@@ -2405,7 +2408,7 @@ var sKey = gc.source_table || gc.value_table_source;
 if (!sKey) { return null; }
 return SOURCE_TO_LOOKUP[sKey + "_" + gc.column_name]
 || SOURCE_TO_LOOKUP[sKey]
-|| null;
+|| (gc.value_table_source ? "UPLOAD:" + gc.value_table_source : null);
 },
 // Same data_type/display_type branching as _gridCellControl, but
 // unbound — this dialog isn't tied to a live row context (it can be
@@ -2711,6 +2714,33 @@ this._mValueCache = this._mValueCache || {};
 this._mValueListCache = this._mValueListCache || {};
 if (this._mValueCache[sEntitySet]) { return this._mValueCache[sEntitySet]; }
 var oModel = this.getOwnerComponent().getModel();
+// "UPLOAD:<table>" = rows uploaded via Value List Upload. Key/description
+// columns come from the Value Table's Output Columns (field_value_1..5),
+// defaulting to Field Value 1 / Field Value 2.
+if (String(sEntitySet).indexOf("UPLOAD:") === 0) {
+var sTable = sEntitySet.slice(7).toUpperCase();
+var pUp = oModel.bindList("/ValueTables", null, null, [
+new Filter("source_table", FilterOperator.EQ, sTable)
+]).requestContexts(0, 1).then(function (aVt) {
+var sKeyCol = (aVt[0] && aVt[0].getProperty("output_key")) || "field_value_1";
+var sDescCol = (aVt[0] && aVt[0].getProperty("output_desc")) || "field_value_2";
+return oModel.bindList("/ValueListEntries", null, [new Sorter("line_no")], [
+new Filter("table_name", FilterOperator.EQ, sTable)
+]).requestContexts(0, 1000).then(function (aCtx) {
+var aVals = [];
+aCtx.forEach(function (c) {
+var sCode = c.getProperty(sKeyCol);
+if (sCode === null || sCode === undefined || sCode === "") { return; }
+var sDesc = c.getProperty(sDescCol);
+aVals.push({ code: String(sCode), text: String(sCode) + (sDesc ? " \u2014 " + sDesc : "") });
+});
+this._mValueListCache[sEntitySet] = aVals;
+return aVals;
+}.bind(this));
+}.bind(this));
+this._mValueCache[sEntitySet] = pUp;
+return pUp;
+}
 var p = oModel.bindList("/" + sEntitySet, null, [new Sorter("code")], [
 new Filter("active", FilterOperator.EQ, true)
 ]).requestContexts(0, 1000).then(function (aCtx) {
@@ -2751,9 +2781,7 @@ return;
 // value-list validation.
 var aInvalid = this._validateRequired(false);
 if (aInvalid.length) {
-MessageBox.warning("Please fix the following before saving:
-" + aInvalid.join("
-"));
+MessageBox.warning("Please fix the following before saving:\n" + aInvalid.join("\n"));
 return;
 }
 this._saveCR(false);
@@ -2761,9 +2789,7 @@ this._saveCR(false);
 onSaveCreate: function () {
 var aMissing = this._validateRequired(true);
 if (aMissing.length) {
-MessageBox.warning("Please fix the following before submitting:
-" + aMissing.join("
-"));
+MessageBox.warning("Please fix the following before submitting:\n" + aMissing.join("\n"));
 return;
 }
 MessageBox.confirm(
@@ -2877,7 +2903,7 @@ field_values : aCRFieldVals
 // ── 5. Call SaveBPChangeRequest via direct HTTP POST ─────
 oRt.setProperty("/busy", true);
 var sServiceUrl = this.getOwnerComponent().getModel().getServiceUrl();
-var sActionUrl = sServiceUrl.replace(//$/, "") + "/SaveBPChangeRequest";
+var sActionUrl = sServiceUrl.replace(/\/$/, "") + "/SaveBPChangeRequest";
 // Debug: log what we're about to save
 console.log("[SaveBPChangeRequest] URL:", sActionUrl);
 console.log("[SaveBPChangeRequest] payload:", JSON.stringify({
@@ -2924,7 +2950,7 @@ var sCrId = (oResult && oResult.cr_id) || "";
 // ── Save attachment metadata if any files were attached ──
 var aAtts = this._oAttsModel ? this._oAttsModel.getProperty("/items") : [];
 if (sCrId && aAtts.length) {
-var sAttsUrl = sServiceUrl.replace(//$/, "") + "/SaveCRAttachments";
+var sAttsUrl = sServiceUrl.replace(/\/$/, "") + "/SaveCRAttachments";
 fetch(sAttsUrl, {
 method : "POST",
 headers: { "Content-Type": "application/json", "Accept": "application/json" },
@@ -2976,8 +3002,7 @@ this.getOwnerComponent().getRouter().navTo("myRequests");
 .catch(function (oErr) {
 oRt.setProperty("/busy", false);
 MessageBox.error(
-"Could not save the change request:
-" +
+"Could not save the change request:\n" +
 ((oErr && oErr.message) ? oErr.message : String(oErr))
 );
 }.bind(this));
@@ -3031,7 +3056,7 @@ var bListValid = this._mValueListCache[sEntitySet].some(function (v) {
 return v.code === sTrimmed || (v.text && v.text.toLowerCase() === sTrimmed.toLowerCase());
 });
 if (!bListValid) {
-aErrors.push("\u2022 " + a.description + ": "" + sTrimmed + "" was not found in the " + a.description + " list. Use the search icon to pick a valid value.");
+aErrors.push("\u2022 " + a.description + ": \"" + sTrimmed + "\" was not found in the " + a.description + " list. Use the search icon to pick a valid value.");
 return;
 }
 }

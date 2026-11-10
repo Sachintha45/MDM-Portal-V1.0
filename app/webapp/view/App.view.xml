@@ -58,6 +58,7 @@
                             <tnt:NavigationListItem text="Field Master"     icon="sap-icon://form"       key="fieldMaster"/>
                             <tnt:NavigationListItem text="Validation Rules" icon="sap-icon://validate"   key="validationRules"/>
                             <tnt:NavigationListItem text="Value Tables"     icon="sap-icon://table-view" key="valueTables"/>
+                            <tnt:NavigationListItem text="Value List Upload" icon="sap-icon://upload"    key="valueListUpload"/>
                             <tnt:NavigationListItem text="Field Groups"     icon="sap-icon://group"      key="fieldGroups"/>
                         </tnt:NavigationListItem>
  

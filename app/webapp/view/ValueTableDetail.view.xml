@@ -63,9 +63,15 @@
                                     </VBox>
                                     <VBox>
                                         <Label text="Backend Table / CDS View" required="true" labelFor="inSourceTable"/>
-                                        <Input id="inSourceTable" value="{source_table}" placeholder="e.g. T001"
-                                               maxLength="60" liveChange=".onFieldChange"
-                                               showValueHelp="true" valueHelpRequest=".onSourceTableValueHelp"/>
+                                        <!-- Pick an uploaded table, or just type any name -->
+                                        <ComboBox id="inSourceTable" value="{source_table}" width="100%"
+                                                  placeholder="Select an uploaded table or type a name"
+                                                  maxLength="60" showSecondaryValues="true"
+                                                  items="{path: 'uploaded>/items'}"
+                                                  change=".onSourceTableChange">
+                                            <core:ListItem key="{uploaded>table_name}" text="{uploaded>table_name}"
+                                                           additionalText="{uploaded>row_count} rows"/>
+                                        </ComboBox>
                                     
                                     </VBox>
                                     <VBox>
@@ -91,9 +97,17 @@
                                     <Text text="I1" style="font-weight:bold; color:var(--sapContent_LabelColor);"/>
                                 </VBox>
                                 <VBox width="16rem" class="sapUiSmallMarginEnd">
-                                    <Label text="Parameter Name"/>
-                                    <Input id="inInput1" value="{input_1}" placeholder="optional"
-                                           maxLength="40" liveChange=".onFieldChange"/>
+                                    <Label text="Filter Column (optional)"/>
+                                    <Select id="inInput1" selectedKey="{input_1}" width="100%"
+                                            forceSelection="false" change=".onFieldChange">
+                                        <core:Item key="" text="\u2014 none \u2014"/>
+                                        <core:Item key="area" text="Master Data Type (Area)"/>
+                                        <core:Item key="field_value_1" text="Field Value 1"/>
+                                            <core:Item key="field_value_2" text="Field Value 2"/>
+                                            <core:Item key="field_value_3" text="Field Value 3"/>
+                                            <core:Item key="field_value_4" text="Field Value 4"/>
+                                            <core:Item key="field_value_5" text="Field Value 5"/>
+                                    </Select>
                                 </VBox>
                             </HBox>
                             <!-- Param row 2 -->
@@ -102,9 +116,17 @@
                                     <Text text="I2" style="font-weight:bold; color:var(--sapContent_LabelColor);"/>
                                 </VBox>
                                 <VBox width="16rem" class="sapUiSmallMarginEnd">
-                                    <Label text="Parameter Name"/>
-                                    <Input id="inInput2" value="{input_2}" placeholder="optional"
-                                           maxLength="40" liveChange=".onFieldChange"/>
+                                    <Label text="Filter Column (optional)"/>
+                                    <Select id="inInput2" selectedKey="{input_2}" width="100%"
+                                            forceSelection="false" change=".onFieldChange">
+                                        <core:Item key="" text="\u2014 none \u2014"/>
+                                        <core:Item key="area" text="Master Data Type (Area)"/>
+                                        <core:Item key="field_value_1" text="Field Value 1"/>
+                                            <core:Item key="field_value_2" text="Field Value 2"/>
+                                            <core:Item key="field_value_3" text="Field Value 3"/>
+                                            <core:Item key="field_value_4" text="Field Value 4"/>
+                                            <core:Item key="field_value_5" text="Field Value 5"/>
+                                    </Select>
                                 </VBox>
                             </HBox>
                             <!-- Param row 3 -->
@@ -113,9 +135,17 @@
                                     <Text text="I3" style="font-weight:bold; color:var(--sapContent_LabelColor);"/>
                                 </VBox>
                                 <VBox width="16rem" class="sapUiSmallMarginEnd">
-                                    <Label text="Parameter Name"/>
-                                    <Input id="inInput3" value="{input_3}" placeholder="optional"
-                                           maxLength="40" liveChange=".onFieldChange"/>
+                                    <Label text="Filter Column (optional)"/>
+                                    <Select id="inInput3" selectedKey="{input_3}" width="100%"
+                                            forceSelection="false" change=".onFieldChange">
+                                        <core:Item key="" text="\u2014 none \u2014"/>
+                                        <core:Item key="area" text="Master Data Type (Area)"/>
+                                        <core:Item key="field_value_1" text="Field Value 1"/>
+                                            <core:Item key="field_value_2" text="Field Value 2"/>
+                                            <core:Item key="field_value_3" text="Field Value 3"/>
+                                            <core:Item key="field_value_4" text="Field Value 4"/>
+                                            <core:Item key="field_value_5" text="Field Value 5"/>
+                                    </Select>
                                 </VBox>
                             </HBox>
 
@@ -132,19 +162,81 @@
                                 <l:content>
                                     <VBox>
                                         <Label text="Output Key" required="true" labelFor="inOutputKey"/>
-                                        <Input id="inOutputKey" value="{output_key}" placeholder="e.g. BUKRS"
-                                               maxLength="40" liveChange=".onFieldChange"/>
+                                        <Select id="inOutputKey" selectedKey="{output_key}" width="100%"
+                                                forceSelection="false" change=".onOutputColumnChange">
+                                            <core:Item key="" text="\u2014 select column \u2014"/>
+                                            <core:Item key="field_value_1" text="Field Value 1"/>
+                                            <core:Item key="field_value_2" text="Field Value 2"/>
+                                            <core:Item key="field_value_3" text="Field Value 3"/>
+                                            <core:Item key="field_value_4" text="Field Value 4"/>
+                                            <core:Item key="field_value_5" text="Field Value 5"/>
+                                        </Select>
+                                        <Text text="Column stored on the field when a value is picked."
+                                              class="sapUiTinyMarginTop"/>
                                         
                                     </VBox>
                                     <VBox>
                                         <Label text="Output Description" required="true" labelFor="inOutputDesc"/>
-                                        <Input id="inOutputDesc" value="{output_desc}" placeholder="e.g. BUTXT"
-                                               maxLength="40" liveChange=".onFieldChange"/>
+                                        <Select id="inOutputDesc" selectedKey="{output_desc}" width="100%"
+                                                forceSelection="false" change=".onOutputColumnChange">
+                                            <core:Item key="" text="\u2014 select column \u2014"/>
+                                            <core:Item key="field_value_1" text="Field Value 1"/>
+                                            <core:Item key="field_value_2" text="Field Value 2"/>
+                                            <core:Item key="field_value_3" text="Field Value 3"/>
+                                            <core:Item key="field_value_4" text="Field Value 4"/>
+                                            <core:Item key="field_value_5" text="Field Value 5"/>
+                                        </Select>
+                                        <Text text="Column shown as the text in the dropdown."
+                                              class="sapUiTinyMarginTop"/>
                                         
                                     </VBox>
                                 </l:content>
                             </l:Grid>
                             
+                        </VBox>
+                    </IconTabFilter>
+
+                    <!-- TAB - Value List Data (read-only; loaded via the Value List Upload page) -->
+                    <IconTabFilter id="tabEntries" text="Value List Data" key="entries"
+                                   count="{view>/entriesCount}" icon="sap-icon://list">
+                        <VBox>
+                            <MessageStrip class="sapUiSmallMarginTop sapUiMediumMarginBeginEnd"
+                                          type="Information" showIcon="true"
+                                          text="{view>/entriesInfo}"/>
+                            <Toolbar class="sapUiSmallMarginTop">
+                                <Title text="Value List Data" level="H4"/>
+                                <ToolbarSpacer/>
+                                <SearchField width="14rem" placeholder="Search\u2026" liveChange=".onEntriesSearch"/>
+                                <Button text="Open Value List Upload" icon="sap-icon://upload"
+                                        type="Transparent" press=".onOpenUploadPage"/>
+                            </Toolbar>
+                            <Table id="entriesTable" growing="true" growingThreshold="100"
+                                   fixedLayout="false" alternateRowColors="true"
+                                   noDataText="No value list data for this Backend Table yet."
+                                   items="{entries>/items}">
+                                <columns>
+                                    <Column width="4rem" hAlign="End"><Label text="#" design="Bold"/></Column>
+                                    <Column width="11rem"><Label text="Master Data Type (Area)" design="Bold"/></Column>
+                                    <Column width="9rem"><Label text="Field Value 1" design="Bold"/></Column>
+                                    <Column><Label text="Field Value 2" design="Bold"/></Column>
+                                    <Column width="10rem"><Label text="Field Value 3" design="Bold"/></Column>
+                                    <Column width="10rem"><Label text="Field Value 4" design="Bold"/></Column>
+                                    <Column width="10rem"><Label text="Field Value 5" design="Bold"/></Column>
+                                </columns>
+                                <items>
+                                    <ColumnListItem>
+                                        <cells>
+                                            <Text text="{entries>line_no}"/>
+                                            <Text text="{entries>area}" wrapping="false"/>
+                                            <Text text="{entries>field_value_1}" wrapping="false"/>
+                                            <Text text="{entries>field_value_2}" wrapping="false"/>
+                                            <Text text="{entries>field_value_3}" wrapping="false"/>
+                                            <Text text="{entries>field_value_4}" wrapping="false"/>
+                                            <Text text="{entries>field_value_5}" wrapping="false"/>
+                                        </cells>
+                                    </ColumnListItem>
+                                </items>
+                            </Table>
                         </VBox>
                     </IconTabFilter>
 

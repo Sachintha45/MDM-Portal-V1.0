@@ -158,6 +158,9 @@ sap.ui.define([
  
         // ── ShellBar breadcrumb helper ──────────────────────────────────
         _onAnyRouteMatched: function (oEvent) {
+            // Keep the ShellBar badge current: any navigation (e.g. after
+            // submitting a request or recording a decision) re-counts.
+            this._loadPendingApprovalCount();
             this._setShellBreadcrumb(oEvent.getParameter("name"));
         },
         _setShellBreadcrumb: function (sKey) {
@@ -255,7 +258,7 @@ sap.ui.define([
                 controller: this
             }).then(function (oPopover) {
                 oView.addDependent(oPopover);
-                oPopover.setModel(new JSONModel({ items: [] }), "notif");
+                oPopover.setModel(new JSONModel({ items: [], pending: [] }), "notif");
                 this._loadNotifications();
                 oPopover.openBy(this.byId("shellBar"));
                 return oPopover;
@@ -264,39 +267,76 @@ sap.ui.define([
  
         _loadNotifications: function () {
             var oModel = this.getOwnerComponent().getModel();
-            ApprovalHelper.getCurrentUserId(oModel)
-                .then(function (sUserId) {
-                    return ApprovalHelper.getMyNotifications(oModel, sUserId, 20);
-                })
-                .then(function (aRows) {
-                    var mPriority = {
-                        REJECTED  : "High",
-                        SENT_BACK : "Medium",
-                        ASSIGNED  : "Medium",
-                        APPROVED  : "Low",
-                        ESCALATED : "High",
-                        POSTED    : "Low",
-                        POSTING_FAILED: "High"
+            var that = this;
+            ApprovalHelper.getCurrentUserId(oModel).then(function (sUserId) {
+                // Pending approvals (same source as the badge) + activity log,
+                // loaded independently so one failing doesn't blank the other.
+                var pPending = ApprovalHelper.getMyPendingApprovals(oModel, sUserId)
+                    .catch(function (e) { console.warn("[Notif] pending approvals failed", e); return []; });
+                var pLog = ApprovalHelper.getMyNotifications(oModel, sUserId, 20)
+                    .catch(function (e) { console.warn("Could not load notifications", e); return []; });
+                return Promise.all([pPending, pLog]);
+            }).then(function (aRes) {
+                console.log("[Notif] pending rows:", aRes[0].length, aRes[0], "| activity rows:", aRes[1].length, aRes[1]);
+                var mPriority = {
+                    REJECTED: "High", SENT_BACK: "Medium", ASSIGNED: "Medium",
+                    APPROVED: "Low", ESCALATED: "High", POSTED: "Low", POSTING_FAILED: "High"
+                };
+                var aPending = aRes[0].map(function (r) {
+                    var aDesc = [];
+                    if (r.requester)         { aDesc.push("Requested by " + r.requester); }
+                    if (r.release_code_id)   { aDesc.push("Release code " + r.release_code_id); }
+                    if (r.step_number)       { aDesc.push("Step " + r.step_number); }
+                    return {
+                        cr_id      : r.cr_id,
+                        step_number: r.step_number,
+                        title      : "CR " + r.cr_id + (r.subject ? " \u2014 " + r.subject : ""),
+                        body       : aDesc.join(" \u00B7 "),
+                        displayDate: that._formatNotificationDate(r.submitted_at),
+                        priority   : r.due_at && new Date(r.due_at) < new Date() ? "High" : "Medium"
                     };
-                    var aItems = aRows.map(function (n) {
-                        return {
-                            notification_id: n.notification_id,
-                            cr_id       : n.cr_cr_id || "",
-                            subject     : n.subject || "",
-                            body        : n.body || "",
-                            priority    : mPriority[n.event_type] || "None",
-                            displayDate : this._formatNotificationDate(n.sent_at || n.createdAt)
-                        };
-                    }.bind(this));
-                    this._pNotificationsPopover.then(function (oPopover) {
-                        oPopover.getModel("notif").setProperty("/items", aItems);
-                    });
-                }.bind(this))
-                .catch(function (oErr) {
-                    console.warn("Could not load notifications", oErr);
                 });
+                // An ASSIGNED notification for a CR that is still waiting in the
+                // pending section is the same information twice - hide it there.
+                var mPendingCr = {};
+                aRes[0].forEach(function (r) { mPendingCr[r.cr_id] = true; });
+                var aLog = aRes[1].filter(function (n) {
+                    return !(n.event_type === "ASSIGNED" && mPendingCr[n.cr_cr_id]);
+                });
+                var aItems = aLog.map(function (n) {
+                    return {
+                        notification_id: n.notification_id,
+                        cr_id       : n.cr_cr_id || "",
+                        subject     : n.subject || "",
+                        body        : n.body || "",
+                        priority    : mPriority[n.event_type] || "None",
+                        displayDate : that._formatNotificationDate(n.sent_at || n.createdAt)
+                    };
+                });
+                // Opening the popover also corrects the badge to the fresh count.
+                that.getView().getModel("ui").setProperty("/pendingApprovals", aPending.length);
+                that._pNotificationsPopover.then(function (oPopover) {
+                    var oM = oPopover.getModel("notif");
+                    oM.setProperty("/pending", aPending);
+                    oM.setProperty("/items", aItems);
+                });
+            }).catch(function (oErr) {
+                console.error("[Notif] popover load failed", oErr);
+            });
         },
- 
+
+        // Pending approval row -> straight into the approval step.
+        onPendingItemPress: function (oEvent) {
+            var oCtx = oEvent.getSource().getBindingContext("notif");
+            if (!oCtx) { return; }
+            var o = oCtx.getObject();
+            this._pNotificationsPopover.then(function (oPopover) { oPopover.close(); });
+            this.getOwnerComponent().getRouter().navTo("approvalDetail", {
+                crId: encodeURIComponent(o.cr_id),
+                stepNumber: o.step_number
+            });
+        },
+
         _formatNotificationDate: function (vDate) {
             if (!vDate) { return ""; }
             var oDate = new Date(vDate);

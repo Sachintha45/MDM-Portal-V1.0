@@ -44,6 +44,38 @@ service MDMPortalService {
         validation.validation_id   as validation_code  : String
     };
     entity ValueTables as projection on portal.ValueTable;
+    entity ValueListEntries as projection on portal.ValueListEntry;
+
+    // One row per uploaded table, with its row count (Value List Upload page).
+    @readonly
+    entity ValueListSummary as select from portal.ValueListEntry {
+        key table_name,
+        count(*) as row_count : Integer,
+        max(modifiedAt) as last_upload : Timestamp
+    } group by table_name;
+
+    // Bulk upload of value-list rows (rows may belong to several tables).
+    //   REPLACE : for every table present in `rows`, delete its rows, insert the new ones
+    //   APPEND  : keep existing rows, add `rows` after them (per table)
+    //   CLEAR   : delete all rows of the tables listed in `tables`
+    action UploadValueList(
+        mode   : String(10),
+        tables : array of String(60),
+        rows   : array of {
+            table_name    : String(60);
+            area          : String(60);
+            field_value_1 : String(200);
+            field_value_2 : String(200);
+            field_value_3 : String(200);
+            field_value_4 : String(200);
+            field_value_5 : String(200);
+        }
+    ) returns {
+        success  : Boolean;
+        message  : String;
+        inserted : Integer;
+        tables   : Integer;
+    };
     entity ValidationRules as projection on portal.ValidationRule;
 
     // =========================================================================

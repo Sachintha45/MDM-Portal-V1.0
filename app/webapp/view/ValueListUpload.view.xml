@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mvc:View
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:f="sap.f"
+    xmlns:u="sap.ui.unified"
+    controllerName="mdm.portal.controller.ValueListUpload"
+    displayBlock="true">
+
+    <f:DynamicPage id="valueListUploadPage" fitContent="false"
+        toggleHeaderOnTitleClick="false" headerExpanded="true" preserveHeaderStateOnScroll="false"
+        class="sapUiSizeCondensed sapMDMFieldMasterPage">
+
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading>
+                    <Title text="Value List Upload" level="H2" wrapping="false"/>
+                </f:heading>
+                <f:snappedHeading>
+                    <Title text="Value List Upload" level="H3" wrapping="false"/>
+                </f:snappedHeading>
+                <f:actions>
+                    <OverflowToolbar style="Clear">
+                        <Button text="Download Template" icon="sap-icon://download"
+                                type="Transparent" press=".onDownloadTemplate"/>
+                        <u:FileUploader id="listUploader" buttonOnly="true" buttonText="Upload File"
+                                        icon="sap-icon://upload" style="Emphasized"
+                                        fileType="xlsx,xls,csv" multiple="false"
+                                        sameFilenameAllowed="true" change=".onFileChange">
+                            <u:layoutData><OverflowToolbarLayoutData priority="NeverOverflow"/></u:layoutData>
+                        </u:FileUploader>
+                    </OverflowToolbar>
+                </f:actions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <f:content>
+            <VBox busy="{view>/busy}" class="sapUiSmallMarginTop">
+
+                <MessageStrip class="sapUiSmallMarginBeginEnd sapUiSmallMarginBottom"
+                              type="Information" showIcon="true"
+                              text="Upload an Excel (.xlsx / .xls) or CSV file with the columns: Table, Area, Field Value 1 \u2013 Field Value 5, where Area is the master data type (e.g. BP). One file can hold many tables. A value table shows the rows whose Table equals its Backend Table."/>
+
+                <!-- Uploaded tables (summary) -->
+                <Table id="summaryTable" mode="SingleSelectMaster" selectionChange=".onSummarySelect"
+                       updateFinished=".onSummaryUpdated" fixedLayout="false" alternateRowColors="true"
+                       growing="true" growingThreshold="50"
+                       noDataText="Nothing uploaded yet \u2014 use Upload File to load value list data."
+                       items="{sum>/items}">
+                    <headerToolbar>
+                        <OverflowToolbar style="Clear">
+                            <Title text="Uploaded Tables" level="H3"/>
+                            <ObjectStatus text="{view>/summaryText}" state="Information" class="sapUiTinyMarginBegin"/>
+                        </OverflowToolbar>
+                    </headerToolbar>
+                    <columns>
+                        <Column width="9rem"><Label text="Table" design="Bold"/></Column>
+                        <Column width="6rem" hAlign="End"><Label text="Rows" design="Bold"/></Column>
+                        <Column><Label text="Used By Value Tables" design="Bold"/></Column>
+                        <Column width="12rem"><Label text="Last Upload" design="Bold"/></Column>
+                        <Column width="6rem" hAlign="End"/>
+                    </columns>
+                    <items>
+                        <ColumnListItem>
+                            <cells>
+                                <ObjectIdentifier title="{sum>table_name}"/>
+                                <Text text="{sum>row_count}"/>
+                                <ObjectStatus text="{sum>used_by}"
+                                              state="{= ${sum>used_by_count} > 0 ? 'Success' : 'Warning'}"/>
+                                <Text text="{sum>last_upload_text}"/>
+                                <HBox justifyContent="End">
+                                    <Button icon="sap-icon://add-document" type="Transparent"
+                                            tooltip="Create a value table from this table"
+                                            visible="{= ${sum>used_by_count} === 0}"
+                                            press=".onCreateValueTable"/>
+                                    <Button icon="sap-icon://delete" type="Transparent"
+                                            tooltip="Delete this table's data" press=".onClearTable"/>
+                                </HBox>
+                            </cells>
+                        </ColumnListItem>
+                    </items>
+                </Table>
+
+                <!-- Data of the selected table -->
+                <Table id="dataTable" class="sapUiMediumMarginTop" growing="true" growingThreshold="100"
+                       fixedLayout="false" alternateRowColors="true"
+                       noDataText="Select a table above to see its data."
+                       items="{data>/items}">
+                    <headerToolbar>
+                        <OverflowToolbar style="Clear">
+                            <Title text="{view>/dataTitle}" level="H3"/>
+                            <ToolbarSpacer/>
+                            <SearchField width="14rem" placeholder="Search\u2026" liveChange=".onDataSearch"/>
+                        </OverflowToolbar>
+                    </headerToolbar>
+                    <columns>
+                        <Column width="4rem" hAlign="End"><Label text="#" design="Bold"/></Column>
+                        <Column width="11rem"><Label text="Master Data Type (Area)" design="Bold"/></Column>
+                        <Column width="9rem"><Label text="Field Value 1" design="Bold"/></Column>
+                        <Column><Label text="Field Value 2" design="Bold"/></Column>
+                        <Column width="10rem"><Label text="Field Value 3" design="Bold"/></Column>
+                        <Column width="10rem"><Label text="Field Value 4" design="Bold"/></Column>
+                        <Column width="10rem"><Label text="Field Value 5" design="Bold"/></Column>
+                    </columns>
+                    <items>
+                        <ColumnListItem>
+                            <cells>
+                                <Text text="{data>line_no}"/>
+                                <Text text="{data>area}" wrapping="false"/>
+                                <Text text="{data>field_value_1}" wrapping="false"/>
+                                <Text text="{data>field_value_2}" wrapping="false"/>
+                                <Text text="{data>field_value_3}" wrapping="false"/>
+                                <Text text="{data>field_value_4}" wrapping="false"/>
+                                <Text text="{data>field_value_5}" wrapping="false"/>
+                            </cells>
+                        </ColumnListItem>
+                    </items>
+                </Table>
+            </VBox>
+        </f:content>
+    </f:DynamicPage>
+</mvc:View>
