@@ -346,6 +346,13 @@ service MDMPortalService {
         success: Boolean;
         message: String;
         next_step: Integer;
+        // Set when this decision was the last approval: the S/4HANA posting
+        // is attempted straight away and its outcome is reported here.
+        fullyApproved: Boolean;
+        postingAttempted: Boolean;
+        postingSuccess: Boolean;
+        postingMessage: String;
+        postedObjectNo: String;
     };
 
     // Callback for SAP Build Process Automation — called from a Connector
@@ -374,6 +381,10 @@ service MDMPortalService {
         message: String;
         nextStageTriggered: Boolean;
         fullyApproved: Boolean;
+        postingAttempted: Boolean;
+        postingSuccess: Boolean;
+        postingMessage: String;
+        postedObjectNo: String;
     };
 
     // Post a change request to SAP

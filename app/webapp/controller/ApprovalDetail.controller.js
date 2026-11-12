@@ -896,8 +896,32 @@ sap.ui.define([
             })
             .then(function (oData) {
                 var oResult = (oData && oData.value) ? oData.value : oData;
+                var fnBack  = function () {
+                    that.getOwnerComponent().getRouter().navTo("myApprovals");
+                };
+
+                // Last approval: the request was posted to S/4HANA right
+                // away. Tell the approver the outcome now instead of
+                // letting the row silently vanish from the Pending list.
+                if (oResult && oResult.postingAttempted) {
+                    oVm.setProperty("/busy", false);
+                    if (oResult.postingSuccess) {
+                        MessageBox.success(
+                            "Request " + that._sCrId + " is fully approved and has been posted to S/4HANA." +
+                            (oResult.postedObjectNo ? "\n\nBusiness Partner: " + oResult.postedObjectNo : ""),
+                            { title: "Posted", onClose: fnBack });
+                    } else {
+                        MessageBox.error(
+                            "Request " + that._sCrId + " is fully approved, but posting to S/4HANA failed:\n\n" +
+                            (oResult.postingMessage || "No error details were returned.") +
+                            "\n\nThe requester has been notified and can correct the data or retry.",
+                            { title: "Posting Failed", onClose: fnBack });
+                    }
+                    return;
+                }
+
                 MessageToast.show((oResult && oResult.message) || (that._sCrId + " " + sAction.toLowerCase() + "ed."));
-                that.getOwnerComponent().getRouter().navTo("myApprovals");
+                fnBack();
             })
             .catch(function (oErr) {
                 oVm.setProperty("/busy", false);

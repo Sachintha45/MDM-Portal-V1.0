@@ -384,6 +384,11 @@ class MDMPortalService extends cds.ApplicationService {
                     success: result.success,
                     message: result.message,
                     next_step: step_number + 1,
+                    fullyApproved: result.fullyApproved,
+                    postingAttempted: result.postingAttempted,
+                    postingSuccess: result.postingSuccess,
+                    postingMessage: result.postingMessage,
+                    postedObjectNo: result.postedObjectNo,
                 };
             } catch (error) {
                 console.error('approveReleaseStep error:', error);
@@ -1340,15 +1345,22 @@ class MDMPortalService extends cds.ApplicationService {
             // _postApprovedCr never throws, so an S/4 problem leaves the
             // decision above intact and the CR in POSTING_FAILED (retry via
             // postChangeRequest).
+            // The outcome goes back to the approver so the screen can tell
+            // them right away whether it was posted or failed.
+            let oPostResult = null;
             if (bFullyApproved) {
-                await this._postApprovedCr(crId, actorId);
+                oPostResult = await this._postApprovedCr(crId, actorId);
             }
 
             return {
                 success: true,
                 message: `Step ${stepNumber} ${decision.toLowerCase()}ed`,
                 nextStageTriggered: bTriggeredNextStage,
-                fullyApproved: bFullyApproved
+                fullyApproved: bFullyApproved,
+                postingAttempted: !!oPostResult,
+                postingSuccess: oPostResult ? !!oPostResult.success : false,
+                postingMessage: oPostResult ? (oPostResult.message || '') : '',
+                postedObjectNo: oPostResult ? (oPostResult.posted_object_no || null) : null
             };
         };
 

@@ -11,6 +11,8 @@ sap.ui.define([
             this._oViewModel = new JSONModel({
                 busy         : false,
                 rows         : [],
+                // true on the "Completed 30d" chip: shows the decisions table
+                showCompleted: false,
                 statPending  : 0,
                 statOverdue  : 0,
                 statDueToday : 0,
@@ -22,6 +24,8 @@ sap.ui.define([
             // Full unfiltered row set (kept separately so stat-chip / search /
             // type filters can all be re-applied client-side without refetching)
             this._aAllRows = [];
+            // My decisions of the last 30 days, one row per decision
+            this._aCompletedRows = [];
             this._sStatFilter = "pending";
 
             var oRouter = this.getOwnerComponent().getRouter();
@@ -51,11 +55,12 @@ sap.ui.define([
                     return ApprovalHelper.getMyPendingApprovals(oModel, sUserId);
                 })
                 .then(function (aRows) {
-                    return that._enrichWithReleaseCodeDescriptions(oModel, aRows);
-                })
-                .then(function (aRows) {
-                    return that._loadCompletedCount(oModel).then(function (iCompleted) {
-                        return { rows: aRows, completed: iCompleted };
+                    return that._loadCompletedApprovals(oModel).then(function (aCompleted) {
+                        // One pass over both lists — same release code lookup
+                        return that._enrichWithReleaseCodeDescriptions(oModel, aRows.concat(aCompleted))
+                            .then(function () {
+                                return { rows: aRows, completed: aCompleted };
+                            });
                     });
                 })
                 .then(function (oResult) {
@@ -69,11 +74,12 @@ sap.ui.define([
                     });
 
                     that._aAllRows = oResult.rows;
+                    that._aCompletedRows = oResult.completed;
 
                     oVm.setProperty("/statPending",   oResult.rows.length);
                     oVm.setProperty("/statOverdue",   oResult.rows.filter(function (r) { return r.isOverdue; }).length);
                     oVm.setProperty("/statDueToday",  oResult.rows.filter(function (r) { return r.isDueToday; }).length);
-                    oVm.setProperty("/statCompleted", oResult.completed);
+                    oVm.setProperty("/statCompleted", oResult.completed.length);
 
                     that._applyFilters();
                     oVm.setProperty("/busy", false);
@@ -107,21 +113,103 @@ sap.ui.define([
                 .catch(function () { return aRows; });
         },
 
-        // Count of decisions THIS user made in the last 30 days, for the
-        // "Completed (30d)" stat chip.
-        _loadCompletedCount: function (oModel) {
-            if (!this._sUserId) { return Promise.resolve(0); }
-            var sBase = oModel.getServiceUrl().replace(/\/$/, "");
-            var oSince = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-            var sSince = oSince.toISOString();
+        // Decisions THIS user made in the last 30 days (newest first), one
+        // row per decision, joined with the request's CURRENT status — so
+        // the approver sees how it ended: still in approval, approved,
+        // posted (with the BP number), posting failed, rejected, ...
+        // A request decided twice (e.g. resubmitted after a failed
+        // posting) shows up once per decision.
+        _loadCompletedApprovals: function (oModel) {
+            if (!this._sUserId) { return Promise.resolve([]); }
+            var sBase  = oModel.getServiceUrl().replace(/\/$/, "");
+            var sSince = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+            var sUser  = encodeURIComponent(this._sUserId.replace(/'/g, "''"));
 
-            return fetch(sBase + "/CRApprovalDecisions?$filter=acted_by eq '" +
-                encodeURIComponent(this._sUserId) + "' and acted_at ge " + sSince +
-                "&$count=true&$top=1",
-                { headers: { Accept: "application/json" } })
-                .then(function (r) { return r.json(); })
-                .then(function (d) { return (d && d["@odata.count"]) || 0; })
-                .catch(function () { return 0; });
+            function fetchJson(sUrl) {
+                return fetch(sUrl, { headers: { Accept: "application/json" } })
+                    .then(function (r) {
+                        if (!r.ok) { throw new Error("HTTP " + r.status); }
+                        return r.json();
+                    })
+                    .then(function (d) { return (d && d.value) || []; });
+            }
+
+            return fetchJson(sBase + "/CRApprovalDecisions?$filter=acted_by eq '" + sUser +
+                "' and acted_at ge " + sSince +
+                "&$select=cr_cr_id,step_number,release_code_release_code_id,action,acted_at,comment" +
+                "&$orderby=acted_at desc&$top=500")
+            .then(function (aDecisions) {
+                if (!aDecisions.length) { return []; }
+
+                var aCrIds = [];
+                aDecisions.forEach(function (d) {
+                    if (aCrIds.indexOf(d.cr_cr_id) < 0) { aCrIds.push(d.cr_cr_id); }
+                });
+
+                // Chunk the OR filter, same as ApprovalHelper.getMyPendingApprovals
+                var aChunks = [];
+                for (var i = 0; i < aCrIds.length; i += 40) {
+                    aChunks.push(aCrIds.slice(i, i + 40));
+                }
+                return Promise.all(aChunks.map(function (aChunk) {
+                    return fetchJson(sBase + "/ChangeRequests?$filter=(" +
+                        aChunk.map(function (s) { return "cr_id eq '" + encodeURIComponent(s) + "'"; }).join(" or ") +
+                        ")&$select=cr_id,request_type,master_data_type_master_data_type_id," +
+                        "bp_category_category_id,account_group_account_group_id,reference_object_no," +
+                        "requester,submitted_at,strategy_strategy_id,status,posted_object_no,posting_error" +
+                        "&$top=500");
+                })).then(function (aChunkResults) {
+                    var mCrById = {};
+                    [].concat.apply([], aChunkResults).forEach(function (cr) { mCrById[cr.cr_id] = cr; });
+
+                    var mDecision = {
+                        APPROVE  : { text: "Approved",  state: "Success" },
+                        REJECT   : { text: "Rejected",  state: "Error" },
+                        SEND_BACK: { text: "Sent Back", state: "Warning" }
+                    };
+                    var mStatus = {
+                        DRAFT         : { text: "Draft",          state: "None" },
+                        IN_APPROVAL   : { text: "In Approval",    state: "Warning" },
+                        APPROVED      : { text: "Approved",       state: "Success" },
+                        POSTED        : { text: "Posted",         state: "Success" },
+                        POSTING_FAILED: { text: "Posting Failed", state: "Error" },
+                        REJECTED      : { text: "Rejected",       state: "Error" },
+                        SENT_BACK     : { text: "Sent Back",      state: "Warning" },
+                        CANCELLED     : { text: "Cancelled",      state: "None" }
+                    };
+
+                    return aDecisions.map(function (d) {
+                        var cr = mCrById[d.cr_cr_id] || {};
+                        var oDec = mDecision[d.action] || { text: d.action || "", state: "None" };
+                        var oSt  = mStatus[cr.status]  || { text: cr.status || "—", state: "None" };
+                        return {
+                            cr_id          : d.cr_cr_id,
+                            request_type   : cr.request_type || "",
+                            subject        : (cr.bp_category_category_id || cr.account_group_account_group_id ||
+                                              cr.master_data_type_master_data_type_id || "") +
+                                             (cr.reference_object_no ? " — " + cr.reference_object_no : ""),
+                            requester      : cr.requester || "",
+                            strategy_id    : cr.strategy_strategy_id || "",
+                            step_number    : d.step_number,
+                            release_code_id: d.release_code_release_code_id || "",
+                            decisionText   : oDec.text,
+                            decisionState  : oDec.state,
+                            comment        : d.comment || "",
+                            decided_at     : d.acted_at || null,
+                            statusText     : cr.status === "POSTED" && cr.posted_object_no
+                                ? "Posted · BP " + cr.posted_object_no
+                                : oSt.text,
+                            statusState    : oSt.state,
+                            // shown as tooltip on the status for POSTING_FAILED
+                            statusTooltip  : cr.status === "POSTING_FAILED" ? (cr.posting_error || "") : ""
+                        };
+                    });
+                });
+            })
+            .catch(function (oErr) {
+                console.error("Could not load completed approvals:", oErr);
+                return [];
+            });
         },
 
         // ── Filters ──────────────────────────────────────────────────
@@ -145,18 +233,18 @@ sap.ui.define([
             var sQuery = this.byId("apSearch") ? this.byId("apSearch").getValue().toLowerCase() : "";
 
             var aRows = this._aAllRows;
+            var bCompleted = this._sStatFilter === "completed";
+            oVm.setProperty("/showCompleted", bCompleted);
 
             if (this._sStatFilter === "overdue") {
                 aRows = aRows.filter(function (r) { return r.isOverdue; });
             } else if (this._sStatFilter === "dueToday") {
                 aRows = aRows.filter(function (r) { return r.isDueToday; });
-            } else if (this._sStatFilter === "completed") {
-                // Completed decisions have a different shape (they're no
-                // longer "pending steps") — see each request's own History
-                // tab in Approval Detail for the full decision trail.
-                aRows = [];
-                oVm.setProperty("/noDataText",
-                    "Completed approvals aren't listed here \u2014 open a request and check its History tab for your past decisions.");
+            } else if (bCompleted) {
+                // Shown in the separate apCompletedTable, which has its own
+                // columns: my decision, when, and how the request ended.
+                aRows = this._aCompletedRows;
+                oVm.setProperty("/noDataText", "You haven't made any approval decisions in the last 30 days.");
             } else {
                 oVm.setProperty("/noDataText", "No pending approvals \u2014 you're all caught up.");
             }
@@ -167,6 +255,7 @@ sap.ui.define([
             if (sQuery) {
                 aRows = aRows.filter(function (r) {
                     return (r.cr_id || "").toLowerCase().indexOf(sQuery) >= 0 ||
+                        (r.statusText || "").toLowerCase().indexOf(sQuery) >= 0 ||
                         (r.subject || "").toLowerCase().indexOf(sQuery) >= 0 ||
                         (r.requester || "").toLowerCase().indexOf(sQuery) >= 0;
                 });

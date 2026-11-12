@@ -68,6 +68,7 @@
                        growingThreshold="20"
                        fixedLayout="false"
                        busy="{view>/busy}"
+                       visible="{= !${view>/showCompleted} }"
                        items="{view>/rows}">
                     <columns>
                         <Column width="10rem"><Label text="Request ID" design="Bold"/></Column>
@@ -108,6 +109,56 @@
                                         formatOptions: { style: 'short', UTC: false }
                                     }"
                                     state="{= ${view>isOverdue} ? 'Error' : ${view>isDueToday} ? 'Warning' : 'None'}"/>
+                                <Text text="{view>requester}" wrapping="false"/>
+                            </cells>
+                        </ColumnListItem>
+                    </items>
+                </Table>
+
+                <!-- Completed 30d: my decisions + how each request ended
+                     (posted with BP number, posting failed, rejected, ...) -->
+                <Table id="apCompletedTable"
+                       noDataText="{view>/noDataText}"
+                       alternateRowColors="true"
+                       growing="true"
+                       growingThreshold="20"
+                       fixedLayout="false"
+                       busy="{view>/busy}"
+                       visible="{view>/showCompleted}"
+                       items="{view>/rows}">
+                    <columns>
+                        <Column width="10rem"><Label text="Request ID" design="Bold"/></Column>
+                        <Column width="6rem" ><Label text="Type"       design="Bold"/></Column>
+                        <Column><Label text="Subject" design="Bold"/></Column>
+                        <Column width="8rem" ><Label text="My Code"    design="Bold"/></Column>
+                        <Column width="8rem" ><Label text="My Decision" design="Bold"/></Column>
+                        <Column width="9rem"
+                                minScreenWidth="Tablet"
+                                demandPopin="true"><Label text="Decided On" design="Bold"/></Column>
+                        <Column width="11rem"><Label text="Request Status" design="Bold"/></Column>
+                        <Column width="9rem"
+                                minScreenWidth="Desktop"
+                                demandPopin="true"><Label text="Submitted By" design="Bold"/></Column>
+                    </columns>
+                    <items>
+                        <ColumnListItem type="Active" press=".onRowPress">
+                            <cells>
+                                <Link text="{view>cr_id}" press=".onRowPress" wrapping="false"/>
+                                <ObjectStatus
+                                    text="{view>request_type}"
+                                    state="{= ${view>request_type} === 'CREATE' ? 'Success' :
+                                           ${view>request_type} === 'EXTEND' ? 'Warning' : 'None'}"/>
+                                <Text text="{view>subject}" wrapping="false"/>
+                                <ObjectStatus text="{view>release_code_id}" state="Information"/>
+                                <ObjectStatus text="{view>decisionText}" state="{view>decisionState}"
+                                              tooltip="{view>comment}"/>
+                                <Text text="{
+                                    path: 'view>decided_at',
+                                    type: 'sap.ui.model.odata.type.DateTimeOffset',
+                                    formatOptions: { style: 'short', UTC: false }
+                                }" wrapping="false"/>
+                                <ObjectStatus text="{view>statusText}" state="{view>statusState}"
+                                              tooltip="{view>statusTooltip}"/>
                                 <Text text="{view>requester}" wrapping="false"/>
                             </cells>
                         </ColumnListItem>
