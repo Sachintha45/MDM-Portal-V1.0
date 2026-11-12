@@ -335,6 +335,7 @@ sap.ui.define([
                 oVm.setProperty("/infoBannerVisible", !!sBanner);
 
                 oVm.setProperty("/status", that._oCr.status || "");
+                oVm.setProperty("/postingError", that._oCr.posting_error || "");
                 var sSubtitle = "Submitted by " + (that._oCr.requester || "\u2014") +
                     (that._oCr.submitted_at ? " on " + new Date(that._oCr.submitted_at).toLocaleDateString() : "") +
                     (that._oCr.strategy_strategy_id ? " \u00b7 Strategy " + that._oCr.strategy_strategy_id : "");

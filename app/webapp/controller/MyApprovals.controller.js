@@ -1,8 +1,9 @@
 sap.ui.define([
     "sap/ui/core/mvc/Controller",
     "sap/ui/model/json/JSONModel",
+    "sap/m/MessageBox",
     "mdm/portal/util/ApprovalHelper"
-], function (Controller, JSONModel, ApprovalHelper) {
+], function (Controller, JSONModel, MessageBox, ApprovalHelper) {
     "use strict";
 
     return Controller.extend("mdm.portal.controller.MyApprovals", {
@@ -200,8 +201,10 @@ sap.ui.define([
                                 ? "Posted · BP " + cr.posted_object_no
                                 : oSt.text,
                             statusState    : oSt.state,
-                            // shown as tooltip on the status for POSTING_FAILED
-                            statusTooltip  : cr.status === "POSTING_FAILED" ? (cr.posting_error || "") : ""
+                            // POSTING_FAILED: the S/4 error, opened via "View error"
+                            // (hasError also covers a failed CR with no stored text)
+                            hasError       : cr.status === "POSTING_FAILED",
+                            postingError   : cr.status === "POSTING_FAILED" ? (cr.posting_error || "") : ""
                         };
                     });
                 });
@@ -210,6 +213,22 @@ sap.ui.define([
                 console.error("Could not load completed approvals:", oErr);
                 return [];
             });
+        },
+
+        // Shows why S/4HANA rejected the posting of a request.
+        onViewPostingError: function (oEvent) {
+            var oRow = oEvent.getSource().getBindingContext("view").getObject();
+            MessageBox.error(
+                "S/4HANA rejected the Business Partner posting:\n\n" +
+                (oRow.postingError || "No error details were recorded."),
+                { title: "Posting Failed — " + oRow.cr_id });
+        },
+
+        // Date + time in the user's locale; "" when empty.
+        formatDateTime: function (vDate) {
+            if (!vDate) { return ""; }
+            var oDate = new Date(vDate);
+            return isNaN(oDate.getTime()) ? "" : oDate.toLocaleString();
         },
 
         // ── Filters ──────────────────────────────────────────────────

@@ -28,6 +28,13 @@
                                class="sapUiSmallMarginBottom"
                                visible="{view>/infoBannerVisible}"/>
 
+                <!-- Why S/4HANA rejected the posting (status POSTING_FAILED) -->
+                <MessageStrip text="{= 'Posting to S/4HANA failed: ' + ${view>/postingError} }"
+                               type="Error"
+                               showIcon="true"
+                               class="sapUiSmallMarginBottom"
+                               visible="{= ${view>/status} === 'POSTING_FAILED' &amp;&amp; !!${view>/postingError} }"/>
+
                 <!-- ── Release Progress strip ──────────────────────────── -->
                 <Label text="RELEASE PROGRESS" class="sapUiTinyMarginBottom mdmRoleBarLabel"/>
                 <ScrollContainer horizontal="true" vertical="false" width="100%"

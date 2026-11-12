@@ -97,17 +97,9 @@
                                 <Text text="{view>subject}" wrapping="false"/>
                                 <Text text="{view>strategy_id}" wrapping="false"/>
                                 <ObjectStatus text="{view>release_code_id}" state="Information"/>
-                                <Text text="{
-                                    path: 'view>submitted_at',
-                                    type: 'sap.ui.model.odata.type.DateTimeOffset',
-                                    formatOptions: { style: 'short', UTC: false }
-                                }" wrapping="false"/>
+                                <Text text="{path: 'view>submitted_at', formatter: '.formatDateTime'}" wrapping="false"/>
                                 <ObjectStatus
-                                    text="{
-                                        path: 'view>due_at',
-                                        type: 'sap.ui.model.odata.type.DateTimeOffset',
-                                        formatOptions: { style: 'short', UTC: false }
-                                    }"
+                                    text="{path: 'view>due_at', formatter: '.formatDateTime'}"
                                     state="{= ${view>isOverdue} ? 'Error' : ${view>isDueToday} ? 'Warning' : 'None'}"/>
                                 <Text text="{view>requester}" wrapping="false"/>
                             </cells>
@@ -152,13 +144,12 @@
                                 <ObjectStatus text="{view>release_code_id}" state="Information"/>
                                 <ObjectStatus text="{view>decisionText}" state="{view>decisionState}"
                                               tooltip="{view>comment}"/>
-                                <Text text="{
-                                    path: 'view>decided_at',
-                                    type: 'sap.ui.model.odata.type.DateTimeOffset',
-                                    formatOptions: { style: 'short', UTC: false }
-                                }" wrapping="false"/>
-                                <ObjectStatus text="{view>statusText}" state="{view>statusState}"
-                                              tooltip="{view>statusTooltip}"/>
+                                <Text text="{path: 'view>decided_at', formatter: '.formatDateTime'}" wrapping="false"/>
+                                <VBox>
+                                    <ObjectStatus text="{view>statusText}" state="{view>statusState}"/>
+                                    <Link text="View error" visible="{view>hasError}"
+                                          press=".onViewPostingError"/>
+                                </VBox>
                                 <Text text="{view>requester}" wrapping="false"/>
                             </cells>
                         </ColumnListItem>
