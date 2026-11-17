@@ -3091,8 +3091,15 @@ sap.ui.define([
                 var pUp = oModel.bindList("/ValueTables", null, null, [
                     new Filter("source_table", FilterOperator.EQ, sTable)
                 ]).requestContexts(0, 1).then(function (aVt) {
-                    var sKeyCol  = (aVt[0] && aVt[0].getProperty("output_key"))  || "field_value_1";
-                    var sDescCol = (aVt[0] && aVt[0].getProperty("output_desc")) || "field_value_2";
+                    // Uploaded rows only have the columns field_value_1..5. A value
+                    // table whose Output Key / Description is something else (for
+                    // example "code" from a database-table value table) would ask
+                    // for a property that does not exist, so fall back to 1 / 2.
+                    var rUpCol   = /^field_value_[1-5]$/;
+                    var sKeyCol  = (aVt[0] && aVt[0].getProperty("output_key"))  || "";
+                    var sDescCol = (aVt[0] && aVt[0].getProperty("output_desc")) || "";
+                    if (!rUpCol.test(sKeyCol))  { sKeyCol  = "field_value_1"; }
+                    if (!rUpCol.test(sDescCol)) { sDescCol = "field_value_2"; }
                     return oModel.bindList("/ValueListEntries", null, [new Sorter("line_no")], [
                         new Filter("table_name", FilterOperator.EQ, sTable)
                     ]).requestContexts(0, 1000).then(function (aCtx) {
