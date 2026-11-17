@@ -9,9 +9,16 @@ sap.ui.define([
     "sap/m/Popover",
     "sap/m/VBox",
     "sap/m/Title",
-    "sap/m/Text"
+    "sap/m/Text",
+    "sap/m/HBox",
+    "sap/m/Button",
+    "sap/m/SearchField",
+    "sap/m/List",
+    "sap/m/StandardListItem",
+    "sap/m/Avatar",
+    "sap/m/ResponsivePopover"
 ], function (Controller, JSONModel, Filter, FilterOperator, MessageToast, Fragment, ApprovalHelper,
-    Popover, VBox, Title, Text) {
+    Popover, VBox, Title, Text, HBox, Button, SearchField, List, StandardListItem, Avatar, ResponsivePopover) {
     "use strict";
  
     // Maps route key → breadcrumb text shown in ShellBar secondTitle
@@ -22,6 +29,7 @@ sap.ui.define([
         validationRules: "Fields \u203a Validation Rules",
         validationRuleDetail: "Fields \u203a Validation Rules",
         valueTables: "Fields \u203a Value Tables",
+        valueListUpload: "Fields \u203a Value List Upload",
         valueTableDetail: "Fields \u203a Value Tables",
         fieldGroups: "Fields \u203a Field Groups",
         fieldGroupDetail: "Fields \u203a Field Groups",
@@ -53,7 +61,8 @@ sap.ui.define([
                 pendingApprovals: 0,
                 shellBreadcrumb: mRouteLabels.fieldMaster,
                 userId: "",
-                userInitials: "?"
+                userInitials: "?",
+                userName: ""
             });
             this.getView().setModel(oUiModel, "ui");
             this._loadPendingApprovalCount();
@@ -232,10 +241,101 @@ sap.ui.define([
             });
         },
         // ── ShellBar search icon pressed ────────────────────────────────
-        onSearchOpen: function () {
-            // ShellBar handles its own search overlay; stub for custom logic
+        // Global quick-search: type to jump to any screen, or to a Field,
+        // Value Table, BP Role, Account Group or BP Category by id/description.
+        // Screens are static; records are fetched once (first open).
+        onSearchOpen: function (oEvent) {
+            if (!this._oSearchPopover) {
+                this._oSearchModel = new JSONModel({ items: [] });
+                this._oSearchField = new SearchField({
+                    placeholder: "Search screens, fields, roles\u2026",
+                    liveChange: this._onGlobalSearch.bind(this),
+                    search: this._onGlobalSearch.bind(this),
+                    width: "100%"
+                });
+                var oList = new List({
+                    noDataText: "No matches",
+                    items: {
+                        path: "gs>/items",
+                        template: new StandardListItem({
+                            title: "{gs>title}",
+                            description: "{gs>description}",
+                            info: "{gs>type}",
+                            icon: "{gs>icon}",
+                            type: "Active",
+                            press: this._onGlobalSearchSelect.bind(this)
+                        })
+                    }
+                });
+                this._oSearchPopover = new ResponsivePopover({
+                    placement: "Bottom",
+                    title: "Search",
+                    contentWidth: "26rem",
+                    contentHeight: "26rem",
+                    content: [this._oSearchField, oList]
+                });
+                this._oSearchPopover.setModel(this._oSearchModel, "gs");
+                this.getView().addDependent(this._oSearchPopover);
+                this._loadSearchIndex();
+            }
+            this._oSearchField.setValue("");
+            this._onGlobalSearch();
+            this._oSearchPopover.openBy(this.byId("shellBar"));
+            setTimeout(function () { this._oSearchField.focus(); }.bind(this), 300);
         },
- 
+
+        _loadSearchIndex: function () {
+            var oModel = this.getOwnerComponent().getModel();
+            var aIndex = [
+                ["Home", "home"], ["Field Master", "fieldMaster"], ["Validation Rules", "validationRules"],
+                ["Value Tables", "valueTables"], ["Value List Upload", "valueListUpload"],
+                ["Field Groups", "fieldGroups"], ["BP Categories", "bpCategories"], ["BP Roles", "bpRoles"],
+                ["Account Groups", "accountGroups"], ["Create BP", "createBP"], ["My Requests", "myRequests"],
+                ["My Approvals", "myApprovals"], ["Release Criteria", "releaseCriteria"],
+                ["Release Codes", "releaseCodes"], ["Release Strategies", "releaseStrategies"]
+            ].map(function (a) {
+                return { title: a[0], description: "Open screen", type: "Screen", icon: "sap-icon://navigation-right-arrow",
+                    route: a[1], params: {}, hay: (a[0] + " screen").toLowerCase() };
+            });
+            this._aSearchIndex = aIndex;
+            var that = this;
+            // [entity, id prop, description prop, route, route param, label, icon]
+            [
+                ["FieldMasters", "field_id", "description", "fieldMasterDetail", "fieldId", "Field", "sap-icon://form"],
+                ["ValueTables", "value_table_id", "description", "valueTableDetail", "valueTableId", "Value Table", "sap-icon://table-view"],
+                ["BPRoles", "role_id", "description", "bpRoleDetail", "roleId", "BP Role", "sap-icon://role"],
+                ["AccountGroups", "account_group_id", "description", "accountGroupDetail", "accountGroupId", "Account Group", "sap-icon://accounts"],
+                ["BPCategories", "category_id", "description", "bpCategoryDetail", "categoryId", "BP Category", "sap-icon://customer"]
+            ].forEach(function (d) {
+                oModel.bindList("/" + d[0]).requestContexts(0, 1000).then(function (aCtx) {
+                    aCtx.forEach(function (c) {
+                        var sId = c.getProperty(d[1]), sDesc = c.getProperty(d[2]) || "";
+                        var mP = {}; mP[d[4]] = sId;
+                        that._aSearchIndex.push({ title: sId, description: sDesc, type: d[5], icon: d[6],
+                            route: d[3], params: mP, hay: (sId + " " + sDesc + " " + d[5]).toLowerCase() });
+                    });
+                    that._onGlobalSearch();
+                }).catch(function () {});
+            });
+        },
+
+        _onGlobalSearch: function () {
+            var sQ = ((this._oSearchField && this._oSearchField.getValue()) || "").trim().toLowerCase();
+            var aAll = this._aSearchIndex || [];
+            var aHit = sQ
+                ? aAll.filter(function (o) { return o.hay.indexOf(sQ) >= 0; })
+                : aAll.filter(function (o) { return o.type === "Screen"; });
+            this._oSearchModel.setProperty("/items", aHit.slice(0, 40));
+        },
+
+        _onGlobalSearchSelect: function (oEvent) {
+            var o = oEvent.getSource().getBindingContext("gs").getObject();
+            this._oSearchPopover.close();
+            var oRouter = this.getOwnerComponent().getRouter();
+            if (oRouter.getRoute(o.route)) { oRouter.navTo(o.route, o.params); }
+            else { MessageToast.show(o.title + " \u2014 coming soon"); }
+        },
+
         // ── Notifications ───────────────────────────────────────────────
         // Lazy-loads the popover fragment on first press and caches it —
         // same pattern used elsewhere in this app for on-demand dialogs.
@@ -402,24 +502,60 @@ sap.ui.define([
             return "?";
         },
  
+        // "geethagini.sivamoorthy@x.io" -> "Geethagini Sivamoorthy"
+        _deriveDisplayName: function (sUserId) {
+            if (!sUserId || sUserId === "anonymous") { return "Guest"; }
+            return sUserId.split("@")[0].split(/[._-]+/).filter(Boolean).map(function (p) {
+                return p.charAt(0).toUpperCase() + p.slice(1);
+            }).join(" ");
+        },
+
         onAvatarPress: function (oEvent) {
+            var oUi = this.getView().getModel("ui");
+            oUi.setProperty("/userName", this._deriveDisplayName(oUi.getProperty("/userId")));
             if (!this._oUserPopover) {
-                this._oUserPopover = new Popover({
-                    placement: "Bottom",
-                    showHeader: false,
-                    contentWidth: "16rem",
-                    content: [
+                // NOTE: style classes must be added with addStyleClass() in JS;
+                // a "class" constructor setting is only understood in XML views
+                // (that is why the first version had no spacing).
+                var oHeader = new HBox({
+                    alignItems: "Center",
+                    items: [
+                        new Avatar({ initials: "{ui>/userInitials}", displaySize: "M", backgroundColor: "Accent6" })
+                            .addStyleClass("sapUiSmallMarginEnd"),
                         new VBox({
-                            class: "sapUiSmallMargin",
+                            width: "11rem",
                             items: [
-                                new Title({ text: "Signed in as", level: "H6" }),
-                                new Text({
-                                    text: "{ui>/userId}",
-                                    class: "sapUiTinyMarginTop"
-                                })
+                                new Title({ text: "{ui>/userName}", level: "H5", wrapping: true }),
+                                new Text({ text: "{ui>/userId}", wrapping: true })
+                                    .addStyleClass("sapUiTinyMarginTop")
                             ]
                         })
                     ]
+                }).addStyleClass("sapUiSmallMargin");
+
+                var oPending = new Text({
+                    text: "{= ${ui>/pendingApprovals} > 0 ? ${ui>/pendingApprovals} + ' approval(s) waiting for you' : 'No approvals waiting'}"
+                }).addStyleClass("sapUiSmallMarginBegin sapUiSmallMarginEnd sapUiSmallMarginBottom");
+
+                var go = function (sRoute) {
+                    return function () {
+                        this._oUserPopover.close();
+                        this.getOwnerComponent().getRouter().navTo(sRoute);
+                    }.bind(this);
+                }.bind(this);
+                var oNav = new List({
+                    showSeparators: "Inner",
+                    items: [
+                        new StandardListItem({ title: "My Requests", icon: "sap-icon://request", type: "Navigation", press: go("myRequests") }),
+                        new StandardListItem({ title: "My Approvals", icon: "sap-icon://approvals", type: "Navigation", press: go("myApprovals") })
+                    ]
+                });
+
+                this._oUserPopover = new Popover({
+                    placement: "Bottom",
+                    showHeader: false,
+                    contentWidth: "18rem",
+                    content: [oHeader, oPending, oNav]
                 });
                 this.getView().addDependent(this._oUserPopover);
             }

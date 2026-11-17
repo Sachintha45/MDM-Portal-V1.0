@@ -297,8 +297,17 @@ _applyFilters: function () {
         onSelectionChange: function () {
             var bHasSelect = this.byId("fieldTable").getSelectedItems().length > 0;
             this.byId("bulkDeleteBtn").setVisible(bHasSelect);
-            this.byId("bulkActivateBtn").setVisible(bHasSelect);
+            // Activate only makes sense when at least one selected field is
+            // still inactive.
+            this.byId("bulkActivateBtn").setVisible(this._getInactive(this.byId("fieldTable").getSelectedItems()).length > 0);
             this.byId("bulkSeparator").setVisible(bHasSelect);
+        },
+
+        _getInactive: function (aItems) {
+            return aItems.filter(function (oItem) {
+                var oCtx = oItem.getBindingContext();
+                return oCtx && !this._isActive(oCtx.getProperty("active"));
+            }.bind(this));
         },
 
         // ── Bulk operations ──────────────────────────────────────────────
@@ -328,6 +337,9 @@ _applyFilters: function () {
         onBulkActivate: function () {
             var aSelected = this.byId("fieldTable").getSelectedItems();
             if (!aSelected.length) { MessageBox.warning("Please select at least one field."); return; }
+            // leave out fields that are already active
+            aSelected = this._getInactive(aSelected);
+            if (!aSelected.length) { MessageToast.show("The selected field(s) are already active."); return; }
             MessageBox.confirm("Activate " + aSelected.length + " field(s)?", {
                 title   : "Confirm Activation",
                 onClose : function (sAction) {

@@ -39,13 +39,13 @@
 
                 <MessageStrip class="sapUiSmallMarginBeginEnd sapUiSmallMarginBottom"
                               type="Information" showIcon="true"
-                              text="Upload an Excel (.xlsx / .xls) or CSV file with the columns: Table, Area, Field Value 1 \u2013 Field Value 5, where Area is the master data type (e.g. BP). One file can hold many tables. A value table shows the rows whose Table equals its Backend Table."/>
+                              text="Upload an Excel (.xlsx / .xls) or CSV file with the columns: Table, Area, Field Value 1 – Field Value 5, where Area is the master data type (e.g. BP). One file can hold many tables. A value table shows the rows whose Table equals its Backend Table."/>
 
                 <!-- Uploaded tables (summary) -->
                 <Table id="summaryTable" mode="SingleSelectMaster" selectionChange=".onSummarySelect"
                        updateFinished=".onSummaryUpdated" fixedLayout="false" alternateRowColors="true"
                        growing="true" growingThreshold="50"
-                       noDataText="Nothing uploaded yet \u2014 use Upload File to load value list data."
+                       noDataText="Nothing uploaded yet — use Upload File to load value list data."
                        items="{sum>/items}">
                     <headerToolbar>
                         <OverflowToolbar style="Clear">
@@ -90,7 +90,15 @@
                         <OverflowToolbar style="Clear">
                             <Title text="{view>/dataTitle}" level="H3"/>
                             <ToolbarSpacer/>
-                            <SearchField width="14rem" placeholder="Search\u2026" liveChange=".onDataSearch"/>
+                            <SearchField width="14rem" placeholder="Search…" liveChange=".onDataSearch"
+                                         visible="{= !${view>/editMode} }"/>
+                            <Button text="Edit" icon="sap-icon://edit" press=".onVlEdit"
+                                    visible="{= !${view>/editMode} &amp;&amp; ${view>/selectedTable} !== '' }"/>
+                            <Button text="Add Row" icon="sap-icon://add" press=".onVlAddRow"
+                                    visible="{view>/editMode}"/>
+                            <Button text="Save" type="Emphasized" press=".onVlSave"
+                                    visible="{view>/editMode}"/>
+                            <Button text="Cancel" press=".onVlCancel" visible="{view>/editMode}"/>
                         </OverflowToolbar>
                     </headerToolbar>
                     <columns>
@@ -101,17 +109,38 @@
                         <Column width="10rem"><Label text="Field Value 3" design="Bold"/></Column>
                         <Column width="10rem"><Label text="Field Value 4" design="Bold"/></Column>
                         <Column width="10rem"><Label text="Field Value 5" design="Bold"/></Column>
+                        <Column width="3rem" visible="{view>/editMode}"/>
                     </columns>
                     <items>
                         <ColumnListItem>
                             <cells>
                                 <Text text="{data>line_no}"/>
-                                <Text text="{data>area}" wrapping="false"/>
-                                <Text text="{data>field_value_1}" wrapping="false"/>
-                                <Text text="{data>field_value_2}" wrapping="false"/>
-                                <Text text="{data>field_value_3}" wrapping="false"/>
-                                <Text text="{data>field_value_4}" wrapping="false"/>
-                                <Text text="{data>field_value_5}" wrapping="false"/>
+                                <HBox>
+                                    <Text text="{data>area}" wrapping="false" visible="{= !${view>/editMode} }"/>
+                                    <Input value="{data>area}" placeholder="e.g. BP" visible="{view>/editMode}"/>
+                                </HBox>
+                                <HBox>
+                                    <Text text="{data>field_value_1}" wrapping="false" visible="{= !${view>/editMode} }"/>
+                                    <Input value="{data>field_value_1}" visible="{view>/editMode}"/>
+                                </HBox>
+                                <HBox>
+                                    <Text text="{data>field_value_2}" wrapping="false" visible="{= !${view>/editMode} }"/>
+                                    <Input value="{data>field_value_2}" visible="{view>/editMode}"/>
+                                </HBox>
+                                <HBox>
+                                    <Text text="{data>field_value_3}" wrapping="false" visible="{= !${view>/editMode} }"/>
+                                    <Input value="{data>field_value_3}" visible="{view>/editMode}"/>
+                                </HBox>
+                                <HBox>
+                                    <Text text="{data>field_value_4}" wrapping="false" visible="{= !${view>/editMode} }"/>
+                                    <Input value="{data>field_value_4}" visible="{view>/editMode}"/>
+                                </HBox>
+                                <HBox>
+                                    <Text text="{data>field_value_5}" wrapping="false" visible="{= !${view>/editMode} }"/>
+                                    <Input value="{data>field_value_5}" visible="{view>/editMode}"/>
+                                </HBox>
+                                <Button icon="sap-icon://delete" type="Transparent" tooltip="Delete row"
+                                        press=".onVlDeleteRow"/>
                             </cells>
                         </ColumnListItem>
                     </items>

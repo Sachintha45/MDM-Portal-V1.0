@@ -76,7 +76,7 @@
                                         <Select id="selDataType"
                                                 selectedKey="{data_type}"
                                                 width="100%"
-                                                change=".onFieldChange"
+                                                change=".onDataTypeChange"
                                                 forceSelection="false"
                                                 items="{path: 'lookups>/dataTypes'}">
                                             <core:Item key="{lookups>key}" text="{lookups>text}"/>
@@ -129,15 +129,15 @@
                                         <Select id="selDisplayType"
                                                 selectedKey="{display_type}"
                                                 width="100%"
-                                                change=".onFieldChange"
+                                                change=".onDisplayTypeChange"
                                                 forceSelection="false"
                                                 items="{path: 'lookups>/displayTypes'}">
                                             <core:Item key="{lookups>key}" text="{lookups>text}"/>
                                         </Select>
                                     </VBox>
-                                    <VBox>
+                                    <VBox id="vbValueTable">
                                         <Label text="{i18n>lbl.valueTable}" labelFor="selValueTable"
-                                               required="{= ${display_type} === 'DROPDOWN' || ${display_type} === 'SEARCH_HELP' }"/>
+                                               required="{= ${display_type} === 'SEARCH_HELP' }"/>
                                         <Select id="selValueTable"
                                                 selectedKey="{value_table_value_table_id}"
                                                 change=".onValueTableChange"
@@ -151,7 +151,7 @@
                                 </layout:content>
                             </layout:Grid>
 
-                            <Panel headerText="{i18n>lbl.valueTablePreview}"
+                            <Panel id="pnlValueTablePreview" headerText="{i18n>lbl.valueTablePreview}"
                                    class="sapUiTinyMarginTop" expandable="false">
                                 <layout:Grid defaultSpan="L4 M4 S12" hSpacing="2">
                                     <layout:content>
@@ -244,35 +244,36 @@
                             <Title text="{i18n>fieldMasterDetail.usedInRoles}" level="H4"/>
                             <ToolbarSpacer/>
                             <Text id="usageCount" text=""/>
+                            <Button text="Assign to BP Role" icon="sap-icon://add" type="Emphasized"
+                                    press=".onUsageAssign"/>
                         </Toolbar>
+                        <!-- One list: saved role assignments plus any added here but not yet
+                             saved (marked "Pending"; written when the field is saved). -->
                         <Table id="usageTable"
                                noDataText="This field is not assigned to any BP role yet"
-                               items="{
-                                   path: '/BPRoleFields',
-                                   filters: [{ path: 'field_field_id', operator: 'EQ', value1: '__NONE__' }],
-                                   parameters: {
-                                       $expand: 'role($select=role_id,description)',
-                                       $select: 'role_role_id,field_field_id,field_status,sequence,default_value,read_only'
-                                   }
-                               }">
+                               items="{pend>/rows}">
                             <columns>
                                 <Column width="120px"><Text text="{i18n>col.roleId}"/></Column>
                                 <Column><Text text="{i18n>lbl.description}"/></Column>
                                 <Column width="120px"><Text text="{i18n>col.fieldStatus}"/></Column>
                                 <Column width="80px"><Text text="{i18n>col.sequence}"/></Column>
                                 <Column width="80px"><Text text="{i18n>lbl.readOnly}"/></Column>
+                                <Column width="3rem"/>
                             </columns>
                             <items>
-                                <ColumnListItem type="Navigation" press=".onUsageRowPress">
+                                <ColumnListItem type="{= ${pend>pending} ? 'Inactive' : 'Navigation' }"
+                                                press=".onUsageRowPress">
                                     <cells>
-                                        <ObjectIdentifier title="{role/role_id}"/>
-                                        <Text text="{role/description}"/>
+                                        <ObjectIdentifier title="{pend>role_id}"/>
+                                        <Text text="{pend>description}"/>
                                         <ObjectStatus
-                                            text="{field_status}"
-                                            state="{= ${field_status} === 'REQUIRED' ? 'Warning' :
-                                                   ${field_status} === 'SUPPRESS' ? 'Error' : 'Information'}"/>
-                                        <Text text="{sequence}"/>
-                                        <CheckBox selected="{read_only}" enabled="false"/>
+                                            text="{pend>field_status}"
+                                            state="{= ${pend>field_status} === 'REQUIRED' ? 'Warning' :
+                                                   ${pend>field_status} === 'SUPPRESS' ? 'Error' : 'Information'}"/>
+                                        <Text text="{pend>sequence}"/>
+                                        <CheckBox selected="{pend>read_only}" enabled="false"/>
+                                        <Button icon="sap-icon://decline" type="Transparent" tooltip="Remove"
+                                                visible="{pend>pending}" press=".onUsagePendingRemove"/>
                                     </cells>
                                 </ColumnListItem>
                             </items>
@@ -323,8 +324,8 @@
                                             state="{= ${action} === 'CREATE' ? 'Success' :
                                                    ${action} === 'DELETE' ? 'Error'   :
                                                    ${action} === 'UPDATE' ? 'Warning' : 'None'}"/>
-                                        <Text text="{before_value}" maxLines="3"/>
-                                        <Text text="{after_value}"  maxLines="3"/>
+                                        <Text text="{parts: [{path: 'before_value'}, {path: 'after_value'}, {path: 'action'}], formatter: '.fmtLogBefore'}"/>
+                                        <Text text="{parts: [{path: 'before_value'}, {path: 'after_value'}, {path: 'action'}], formatter: '.fmtLogAfter'}"/>
                                     </cells>
                                 </ColumnListItem>
                             </items>

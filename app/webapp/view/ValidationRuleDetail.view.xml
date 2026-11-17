@@ -54,7 +54,7 @@
                                         <Label text="Validation Name" required="true" labelFor="inId"/>
                                         <Input id="inId" value="{validation_id}" placeholder="e.g. VAL002"
                                                editable="{view>/isNew}"
-                                               maxLength="20" liveChange=".onFieldChange"/>
+                                               maxLength="20" liveChange=".onFieldChange" change=".onIdBlur"/>
                                     </VBox>
                                     <VBox>
                                         <Label text="Function Name" required="true" labelFor="inFunction"/>
@@ -72,7 +72,7 @@
                                     <VBox/>
                                     <VBox>
                                         <Label text="Trigger" required="true" labelFor="selTrigger"/>
-                                        <Select id="selTrigger" width="100%" change=".onFieldChange" forceSelection="false">
+                                        <Select id="selTrigger" width="100%" selectedKey="{trigger_on}" change=".onFieldChange" forceSelection="false">
                                             <core:Item key="FIELD" text="On Field Change"/>
                                             <core:Item key="SAVE"  text="On Save"/>
                                         </Select>
@@ -139,6 +139,8 @@
                             <Toolbar class="sapUiSmallMarginTop">
                                 <Title text="Fields Using This Validation" level="H4"/>
                                 <ToolbarSpacer/>
+                                <Button text="Assign Fields" icon="sap-icon://add" type="Emphasized"
+                                        press=".onAssignFields"/>
                             </Toolbar>
                             <Table id="usageTable" noDataText="Not linked to any field yet."
                                    fixedLayout="true" alternateRowColors="true"
@@ -149,7 +151,8 @@
                                     <Column width="7rem"><Label text="Main Group" design="Bold"/></Column>
                                     <Column width="7rem"><Label text="Sub Group" design="Bold"/></Column>
                                     <Column width="6rem"><Label text="Data Type" design="Bold"/></Column>
-                                    <Column width="5rem" hAlign="Center"><Label text="Status" design="Bold"/></Column>
+                                    <Column width="6rem" hAlign="Center"><Label text="Status" design="Bold"/></Column>
+                                    <Column width="3rem" hAlign="End"/>
                                 </columns>
                                 <items>
                                     <ColumnListItem type="Active" press=".onUsageRowPress">
@@ -159,8 +162,11 @@
                                             <Text text="{= ${usage>main_group} ? ${usage>main_group} : '\u2014'}" wrapping="false"/>
                                             <Text text="{= ${usage>sub_group} ? ${usage>sub_group} : '\u2014'}" wrapping="false"/>
                                             <Text text="{usage>data_type}" wrapping="false"/>
-                                            <ObjectStatus text="{= ${usage>active} ? 'Active' : 'Inactive'}"
-                                                state="{= ${usage>active} ? 'Success' : 'Error'}"/>
+                                            <ObjectStatus
+                                                text="{= ${usage>pending} ? 'Pending save' : (${usage>active} ? 'Active' : 'Inactive')}"
+                                                state="{= ${usage>pending} ? 'Warning' : (${usage>active} ? 'Success' : 'Error')}"/>
+                                            <Button icon="sap-icon://decline" type="Transparent"
+                                                    tooltip="Remove from this validation" press=".onUsageRemove"/>
                                         </cells>
                                     </ColumnListItem>
                                 </items>

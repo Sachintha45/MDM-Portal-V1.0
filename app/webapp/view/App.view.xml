@@ -26,7 +26,7 @@
                 showNotifications="true"
                 notificationsNumber="{ui>/pendingApprovals}"
                 notificationsPressed=".onNotificationsPress"
-                showProductSwitcher="true"
+                showProductSwitcher="false"
                 customStyleClasses="mdmShellBar">
  
                 <!-- profile: the only child aggregation we need -->

@@ -6,16 +6,18 @@ sap.ui.define([
     "sap/ui/model/Sorter",
     "sap/m/MessageToast",
     "sap/m/MessageBox",
-    "sap/ui/dom/includeScript"
-], function (Controller, JSONModel, Filter, FilterOperator, Sorter, MessageToast, MessageBox, includeScript) {
+    "sap/ui/dom/includeScript",
+    "mdm/portal/util/ValueListEditHelper"
+], function (Controller, JSONModel, Filter, FilterOperator, Sorter, MessageToast, MessageBox, includeScript, ValueListEditHelper) {
     "use strict";
 
-    return Controller.extend("mdm.portal.controller.ValueListUpload", {
+    return Controller.extend("mdm.portal.controller.ValueListUpload", Object.assign({}, ValueListEditHelper, {
 
         onInit: function () {
             this._oViewModel = new JSONModel({
                 busy: false,
                 selectedTable: "",
+                editMode: false,
                 summaryText: "",
                 dataTitle: "Data"
             });
@@ -97,7 +99,17 @@ sap.ui.define([
         },
 
         // ── Data of the selected table ───────────────────────────────
+        // Supplies what the shared inline-edit helper needs.
+        _vlCtx: function () {
+            var sTable = this._oViewModel.getProperty("/selectedTable");
+            return {
+                model: this.getView().getModel("data"), modelName: "data", table: sTable,
+                reload: function () { return this._loadSummary(sTable); }.bind(this)
+            };
+        },
+
         _selectTable: function (sTable) {
+            this._oViewModel.setProperty("/editMode", false);   // leave edit mode when switching tables
             this._oViewModel.setProperty("/selectedTable", sTable);
             if (!sTable) {
                 this.getView().getModel("data").setProperty("/items", []);
@@ -145,11 +157,16 @@ sap.ui.define([
         // SheetJS is loaded on demand (only when this page is actually used).
         _loadXlsx: function () {
             if (window.XLSX) { return Promise.resolve(window.XLSX); }
-            return includeScript(sap.ui.require.toUrl("mdm/portal/lib/xlsx.full.min.js"))
-                .then(function () {
-                    if (!window.XLSX) { throw new Error("Excel library could not be loaded."); }
-                    return window.XLSX;
-                });
+            // includeScript only returns a Promise in newer UI5 versions (older ones
+            // return undefined), so use the callback form and wrap it ourselves.
+            var sUrl = sap.ui.require.toUrl("mdm/portal/lib/xlsx.full.min.js");
+            return new Promise(function (resolve, reject) {
+                var oRes = includeScript(sUrl, "mdm-xlsx-lib", resolve, reject);
+                if (oRes && typeof oRes.then === "function") { oRes.then(resolve, reject); }
+            }).then(function () {
+                if (!window.XLSX) { throw new Error("Excel library could not be loaded."); }
+                return window.XLSX;
+            });
         },
 
         onDownloadTemplate: function () {
@@ -352,5 +369,5 @@ sap.ui.define([
                 }.bind(this)
             });
         }
-    });
+    }));
 });

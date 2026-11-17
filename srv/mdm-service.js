@@ -4,7 +4,6 @@
 
 const cds = require('@sap/cds');
 const { v4: uuid } = require('uuid');
-const integration = require('./integration-service');
 
 // Width of the zero-padded running sequence used for CR IDs, e.g. "0000000001".
 // 10 digits comfortably supports up to 9,999,999,999 requests; the column
@@ -116,108 +115,6 @@ class MDMPortalService extends cds.ApplicationService {
             await INSERT.into('mdm.portal.CRAttachment').entries(aRows);
             console.log(`[SaveCRAttachments] saved ${aRows.length} row(s) for ${cr_id}`);
             return { success: true, message: `${aRows.length} attachment(s) saved.`, saved: aRows.length };
-        });
-
-        // =====================================================================
-        //  UploadValueList — general value-list upload (Table, Area, Field
-        //  Value 1-5). One file may hold rows of many tables. Runs in the
-        //  request's transaction, so a failed insert never leaves a table
-        //  half-replaced.
-        // =====================================================================
-        this.on('UploadValueList', async (req) => {
-            const { rows = [], tables = [] } = req.data;
-            const sMode = String(req.data.mode || 'REPLACE').toUpperCase();
-            if (!['REPLACE', 'APPEND', 'CLEAR'].includes(sMode)) {
-                return req.error(400, `Unknown mode "${sMode}" — use REPLACE, APPEND or CLEAR`);
-            }
-            const ENTRY = 'mdm.portal.ValueListEntry';
-            const actor = req.user?.id || 'system';
-            const dNow = new Date().toISOString();
-            const clip = (v, n) => (v === null || v === undefined) ? null : String(v).trim().slice(0, n);
-            const tbl = (v) => (clip(v, 60) || '').toUpperCase();
-
-            if (sMode === 'CLEAR') {
-                const aT = [...new Set(tables.map(tbl).filter(Boolean))];
-                if (!aT.length) { return req.error(400, 'No table given to clear'); }
-                await DELETE.from(ENTRY).where({ table_name: { in: aT } });
-                return { success: true, message: `Data of ${aT.join(', ')} removed.`, inserted: 0, tables: aT.length };
-            }
-
-            // Group the incoming rows per table.
-            const mByTable = {};
-            for (let i = 0; i < rows.length; i++) {
-                const t = tbl(rows[i].table_name);
-                if (!t) { return req.error(400, `Row ${i + 1} has no Table value`); }
-                (mByTable[t] = mByTable[t] || []).push(rows[i]);
-            }
-            const aTables = Object.keys(mByTable);
-            if (!aTables.length) { return req.error(400, 'The upload contains no rows'); }
-
-            // Area = Master Data Type. Accept its id (BUSINESS PARTNER), its
-            // object class (BP) or its description, in any letter case, and
-            // store the canonical master_data_type_id. Blank area is allowed
-            // (row applies to every master data type); anything unknown is
-            // rejected so typos can't create orphan values.
-            const aMdt = await SELECT.from('mdm.portal.MasterDataType')
-                .columns('master_data_type_id', 'object_class', 'description');
-            const mMdt = {};
-            aMdt.forEach(m => {
-                [m.master_data_type_id, m.object_class, m.description].forEach(k => {
-                    if (k) { mMdt[String(k).trim().toUpperCase()] = m.master_data_type_id; }
-                });
-            });
-            const aBadArea = new Set();
-            rows.forEach(r => {
-                const a = clip(r.area, 60);
-                if (!a) { r.area = null; return; }
-                const hit = mMdt[a.toUpperCase()];
-                if (hit) { r.area = hit; } else { aBadArea.add(a); }
-            });
-            if (aBadArea.size) {
-                return req.error(400, `Unknown Area (master data type): ${[...aBadArea].join(', ')}. ` +
-                    `Valid values: ${aMdt.map(m => m.object_class || m.master_data_type_id).join(', ')}`);
-            }
-
-            if (sMode === 'REPLACE') {
-                await DELETE.from(ENTRY).where({ table_name: { in: aTables } });
-            }
-            const mStart = {};
-            if (sMode === 'APPEND') {
-                const aMax = await SELECT.from(ENTRY).columns('table_name', 'max(line_no) as m')
-                    .where({ table_name: { in: aTables } }).groupBy('table_name');
-                aMax.forEach(r => { mStart[r.table_name] = r.m || 0; });
-            }
-
-            const aOut = [];
-            aTables.forEach((t) => {
-                let n = mStart[t] || 0;
-                mByTable[t].forEach((r) => {
-                    const o = {
-                        table_name: t,
-                        line_no: 0,
-                        area: clip(r.area, 60),
-                        field_value_1: clip(r.field_value_1, 200),
-                        field_value_2: clip(r.field_value_2, 200),
-                        field_value_3: clip(r.field_value_3, 200),
-                        field_value_4: clip(r.field_value_4, 200),
-                        field_value_5: clip(r.field_value_5, 200),
-                        createdAt: dNow, createdBy: actor, modifiedAt: dNow, modifiedBy: actor
-                    };
-                    if ([o.field_value_1, o.field_value_2, o.field_value_3, o.field_value_4, o.field_value_5].some(v => v)) {
-                        o.line_no = ++n;
-                        aOut.push(o);
-                    }
-                });
-            });
-
-            // Insert in chunks to stay below the DB driver's bound-variable limit.
-            const CHUNK = 200;
-            for (let i = 0; i < aOut.length; i += CHUNK) {
-                await INSERT.into(ENTRY).entries(aOut.slice(i, i + CHUNK));
-            }
-            console.log(`[UploadValueList] ${sMode} ${aOut.length} row(s) for ${aTables.join(', ')}`);
-            return { success: true, message: `${aOut.length} row(s) saved for ${aTables.length} table(s).`,
-                     inserted: aOut.length, tables: aTables.length };
         });
 
         this.on('DeleteChangeRequest', async (req) => {
@@ -384,11 +281,6 @@ class MDMPortalService extends cds.ApplicationService {
                     success: result.success,
                     message: result.message,
                     next_step: step_number + 1,
-                    fullyApproved: result.fullyApproved,
-                    postingAttempted: result.postingAttempted,
-                    postingSuccess: result.postingSuccess,
-                    postingMessage: result.postingMessage,
-                    postedObjectNo: result.postedObjectNo,
                 };
             } catch (error) {
                 console.error('approveReleaseStep error:', error);
@@ -442,47 +334,61 @@ class MDMPortalService extends cds.ApplicationService {
         });
 
         /**
-         * Post an approved change request to SAP.
-         *
-         * Posting normally happens automatically as soon as the last
-         * approval is recorded (see _applyStepDecision). This action is the
-         * manual retry for a CR whose automatic posting failed, or one that
-         * was approved before automatic posting existed.
+         * Post an approved change request to SAP
          */
         this.on('postChangeRequest', async (req) => {
             const { cr_id } = req.data;
+            const db = cds.db;
 
-            const cr = await SELECT.one.from('mdm.portal.CRHeader').where({ cr_id: cr_id });
+            try {
+                const cr = await SELECT.one.from('mdm.portal.CRHeader').where({ cr_id: cr_id });
 
-            if (!cr) {
-                return req.error(404, `CR ${cr_id} not found`);
+                if (!cr) {
+                    return req.error(404, `CR ${cr_id} not found`);
+                }
+
+                if (cr.status !== 'APPROVED') {
+                    return req.error(
+                        400,
+                        `Cannot post CR in ${cr.status} status. Must be APPROVED.`
+                    );
+                }
+
+                // TODO: Call SAP RFC / API to post the change request
+                const postedObjectNo = await this.postToSAP(cr);
+
+                if (!postedObjectNo) {
+                    return req.error(500, 'Failed to post to SAP');
+                }
+
+                // Update CR — CRHeader's key is "cr_id", not the default
+                // "ID" that db.update(entity, scalarValue) assumes, so an
+                // explicit .where() is required.
+                await db.update('mdm.portal.CRHeader').where({ cr_id }).set({
+                    status: 'POSTED',
+                    posted_object_no: postedObjectNo,
+                    posted_at: new Date(),
+                });
+
+                // Audit log
+                await this.createAuditLog('CR_HEADER', cr_id, 'POST', req.user.id);
+
+                return {
+                    success: true,
+                    message: `Change Request posted successfully`,
+                    posted_object_no: postedObjectNo,
+                };
+            } catch (error) {
+                console.error('postChangeRequest error:', error);
+
+                // Update CR status to POSTING_FAILED
+                await db
+                    .update('mdm.portal.CRHeader')
+                    .where({ cr_id })
+                    .set({ status: 'POSTING_FAILED' });
+
+                return req.error(500, `Failed to post CR: ${error.message}`);
             }
-
-            if (cr.status !== 'APPROVED' && cr.status !== 'POSTING_FAILED') {
-                return req.error(
-                    400,
-                    `Cannot post CR in ${cr.status} status. Must be APPROVED or POSTING_FAILED.`
-                );
-            }
-
-            if (cr.request_type !== 'CREATE' && !cr.reference_object_no) {
-                return req.error(
-                    400,
-                    `CR ${cr_id} is a ${cr.request_type} request but has no Business Partner number (reference_object_no).`
-                );
-            }
-
-            // A failed posting is reported through success=false rather than
-            // req.error(): req.error() rolls back this request's transaction,
-            // which would also undo the POSTING_FAILED status and the
-            // requester notification _postApprovedCr has just written.
-            const oResult = await this._postApprovedCr(cr_id, req.user.id);
-
-            return {
-                success: oResult.success,
-                message: oResult.message,
-                posted_object_no: oResult.posted_object_no || null,
-            };
         });
 
         this.on('ValidateField', async (req) => {
@@ -871,16 +777,6 @@ class MDMPortalService extends cds.ApplicationService {
 
             const sMdt = strategy.master_data_type_master_data_type_id;
 
-            // A resubmitted CR (e.g. corrected after a failed S/4HANA
-            // posting) already has a snapshot from its previous approval
-            // round. CRReleaseStrategy is keyed by the CR alone, so the
-            // INSERT below would hit a duplicate key — and the old steps
-            // are all APPROVED, which would skip the new round entirely.
-            // Drop the old snapshot; the previous round's decisions stay
-            // in CRApprovalDecision as history.
-            await db.run(DELETE.from('mdm.portal.CRReleaseStep').where({ cr_cr_cr_id: crId }));
-            await db.run(DELETE.from('mdm.portal.CRReleaseStrategy').where({ cr_cr_id: crId }));
-
             // Column names below are the ACTUAL flattened foreign keys
             // generated from the CDS associations (confirmed via
             // `cds compile db/data-model.cds --to sql --dialect sqlite`) —
@@ -935,149 +831,11 @@ class MDMPortalService extends cds.ApplicationService {
             }
         };
 
-        // Which integration-service.js function posts each request type,
-        // and how its outcome is worded in notifications.
-        const S4_POSTING = {
-            CREATE: { post: integration.createBusinessPartner,          done: 'created',             doing: 'creating' },
-            CHANGE: { post: integration.updateBusinessPartner,          done: 'updated',             doing: 'updating' },
-            EXTEND: { post: integration.updateBusinessPartner,          done: 'extended',            doing: 'extending' },
-            DELETE: { post: integration.markBusinessPartnerForDeletion, done: 'marked for deletion', doing: 'marking for deletion' }
-        };
-
-        // Posts one fully approved CR to S/4HANA and writes the outcome
-        // back to the CR: POSTED + the BP number on success (the new number
-        // for CREATE, the CR's reference_object_no otherwise),
-        // POSTING_FAILED on failure, with an IN_APP notification to the
-        // requester either way. Called automatically from
-        // _applyStepDecision the moment the last approval is recorded, and
-        // from postChangeRequest as the manual retry.
-        //
-        // Never throws — same philosophy as _triggerApprovalWorkflow: by
-        // the time this runs the approval decision is already recorded, and
-        // an S/4 outage must not roll that back. A failed posting stays
-        // visible as POSTING_FAILED and can be retried.
-        this._postApprovedCr = async function (crId, actorId) {
-            const db = cds.db;
-            let cr;
-            let oPosted;
-            let oPosting = S4_POSTING.CREATE;
-
-            try {
-                cr = await SELECT.one.from('mdm.portal.CRHeader').where({ cr_id: crId });
-                if (!cr) {
-                    return { success: false, message: `CR ${crId} not found` };
-                }
-                if (cr.status === 'POSTED' || cr.posted_object_no) {
-                    // Already posted — never send the same request twice
-                    // (for CREATE that would be a duplicate BP).
-                    return {
-                        success: true,
-                        message: `Change Request ${crId} was already posted for Business Partner ${cr.posted_object_no}`,
-                        posted_object_no: cr.posted_object_no
-                    };
-                }
-                if (cr.status !== 'APPROVED' && cr.status !== 'POSTING_FAILED') {
-                    return { success: false, message: `CR ${crId} is ${cr.status} — only an approved request can be posted` };
-                }
-                oPosting = S4_POSTING[cr.request_type];
-                if (!oPosting) {
-                    console.log(`[s4] CR ${crId} has request type ${cr.request_type}, which has no S/4HANA posting — left APPROVED`);
-                    return { success: false, message: `Request type ${cr.request_type} cannot be posted to S/4HANA` };
-                }
-
-                oPosted = await oPosting.post(cr);
-            } catch (error) {
-                const sReason = integration.extractS4Error(error);
-                console.error(`[s4] Posting CR ${crId} to S/4HANA failed:`, sReason);
-
-                try {
-                    await db.update('mdm.portal.CRHeader').where({ cr_id: crId }).set({
-                        status: 'POSTING_FAILED',
-                        posting_error: String(sReason).slice(0, 5000)
-                    });
-                    await this.createAuditLog('CR_HEADER', crId, 'POST', actorId, null,
-                        { status: 'POSTING_FAILED', error: sReason });
-                    if (cr && cr.requester) {
-                        await db.run(
-                            INSERT.into('mdm.portal.Notification').entries([{
-                                notification_id: uuid(),
-                                cr_cr_id: crId,
-                                event_type: 'POSTING_FAILED',
-                                recipient: cr.requester,
-                                channel: 'IN_APP',
-                                subject: `Change Request ${crId} could not be posted to S/4HANA`,
-                                body: `Your change request ${crId} was approved, but ${oPosting.doing} the Business Partner in S/4HANA failed: ${sReason}`,
-                                status: 'SENT',
-                                sent_at: new Date()
-                            }])
-                        );
-                    }
-                } catch (statusError) {
-                    console.error(`[s4] Failed to record POSTING_FAILED for CR ${crId}:`, statusError.message);
-                }
-
-                return { success: false, message: `Failed to post CR to S/4HANA: ${sReason}` };
-            }
-
-            // S/4 has accepted the request — from here on nothing may turn
-            // this into a "failed" posting, or a retry of a CREATE would
-            // create a duplicate BP.
-            const sBpNumber = oPosted.bpNumber;
-            try {
-                // CRHeader's key is "cr_id", not the default "ID" that
-                // db.update(entity, scalarValue) assumes, so an explicit
-                // .where() is required.
-                await db.update('mdm.portal.CRHeader').where({ cr_id: crId }).set({
-                    status: 'POSTED',
-                    posted_object_no: sBpNumber,
-                    posted_at: new Date(),
-                    posting_error: null
-                });
-            } catch (updateError) {
-                console.error(
-                    `[s4] Business Partner ${sBpNumber} WAS ${oPosting.done} in S/4HANA for CR ${crId}, but writing ` +
-                    'that back to the CR failed — set status/posted_object_no manually, do NOT re-post:',
-                    updateError.message
-                );
-                return {
-                    success: false,
-                    message: `Business Partner ${sBpNumber} was ${oPosting.done} in S/4HANA, but CR ${crId} could not be updated: ${updateError.message}`,
-                    posted_object_no: sBpNumber
-                };
-            }
-
-            try {
-                await this.createAuditLog('CR_HEADER', crId, 'POST', actorId, null, {
-                    status: 'POSTED',
-                    posted_object_no: sBpNumber,
-                    changes: oPosted.changes,
-                    warnings: oPosted.warnings
-                });
-                if (cr.requester) {
-                    await db.run(
-                        INSERT.into('mdm.portal.Notification').entries([{
-                            notification_id: uuid(),
-                            cr_cr_id: crId,
-                            event_type: 'POSTED',
-                            recipient: cr.requester,
-                            channel: 'IN_APP',
-                            subject: `Change Request ${crId} posted — Business Partner ${sBpNumber}`,
-                            body: `Your change request ${crId} was posted to S/4HANA. Business Partner ${sBpNumber} has been ${oPosting.done}.` +
-                                (oPosted.warnings.length ? ` Notes: ${oPosted.warnings.join(' ')}` : ''),
-                            status: 'SENT',
-                            sent_at: new Date()
-                        }])
-                    );
-                }
-            } catch (notifyError) {
-                console.error(`[notify] Failed to write POSTED audit/notification for CR ${crId}:`, notifyError.message);
-            }
-
-            return {
-                success: true,
-                message: `Change Request ${crId} posted — Business Partner ${sBpNumber} ${oPosting.done}`,
-                posted_object_no: sBpNumber
-            };
+        this.postToSAP = async function (cr) {
+            // TODO: Implement SAP posting logic
+            // - Call RFC or REST API
+            // - Handle errors
+            return `BP-${Date.now()}`;
         };
 
         // Groups a CR's CRReleaseStep rows into "stages" — the SAME
@@ -1339,28 +1097,11 @@ class MDMPortalService extends cds.ApplicationService {
 
             await this.createAuditLog('CR_RELEASE_STEP', `${crId}#${stepNumber}`, decision, actorId);
 
-            // Last approval recorded — create / update / mark for deletion
-            // the Business Partner in S/4HANA straight away (depending on
-            // the request type) and write the BP number back to the CR.
-            // _postApprovedCr never throws, so an S/4 problem leaves the
-            // decision above intact and the CR in POSTING_FAILED (retry via
-            // postChangeRequest).
-            // The outcome goes back to the approver so the screen can tell
-            // them right away whether it was posted or failed.
-            let oPostResult = null;
-            if (bFullyApproved) {
-                oPostResult = await this._postApprovedCr(crId, actorId);
-            }
-
             return {
                 success: true,
                 message: `Step ${stepNumber} ${decision.toLowerCase()}ed`,
                 nextStageTriggered: bTriggeredNextStage,
-                fullyApproved: bFullyApproved,
-                postingAttempted: !!oPostResult,
-                postingSuccess: oPostResult ? !!oPostResult.success : false,
-                postingMessage: oPostResult ? (oPostResult.message || '') : '',
-                postedObjectNo: oPostResult ? (oPostResult.posted_object_no || null) : null
+                fullyApproved: bFullyApproved
             };
         };
 
@@ -1470,6 +1211,67 @@ class MDMPortalService extends cds.ApplicationService {
                 key: ['strategy_id', 'master_data_type_master_data_type_id']
             },
         ];
+
+        // ── Field Group change log: record field assignments ──────────────
+        // Assigning a field to a group is saved as a change to the FIELD
+        // (its main_group / sub_group), so it only reached the Field Master log.
+        // Write a matching entry into the Field Group's own log as well.
+        const FG_LEVELS = [
+            ['main_group_group_id', 'Main Group'],
+            ['sub_group_group_id',  'Sub Group']
+        ];
+        const logGroupAssignments = async (before, after, actor) => {
+            const sField = (after && after.field_id) || (before && before.field_id);
+            if (!sField) { return; }
+            for (const [col, level] of FG_LEVELS) {
+                const was = before ? before[col] : null;
+                const now = after ? after[col] : null;
+                if ((was || null) === (now || null)) { continue; }
+                if (was) {
+                    await this.createAuditLog('FieldGroup', was, 'UPDATE', actor,
+                        { field_removed: sField, level }, null);
+                }
+                if (now) {
+                    await this.createAuditLog('FieldGroup', now, 'UPDATE', actor,
+                        null, { field_assigned: sField, level });
+                }
+            }
+        };
+        this.after('CREATE', 'FieldMasters', async (data, req) => {
+            try {
+                const o = Array.isArray(data) ? data[0] : data;
+                if (!o || !o.field_id) { return; }
+                const aRow = await cds.db.read('mdm.portal.FieldMaster').where({ field_id: o.field_id });
+                await logGroupAssignments(null, aRow && aRow[0], req.user?.id || 'system');
+            } catch (e) { console.error('[audit] field-group assignment (create):', e.message); }
+        });
+        this.after('UPDATE', 'FieldMasters', async (data, req) => {
+            try {
+                const o = Array.isArray(data) ? data[0] : data;
+                const sId = (o && o.field_id) || req._auditKey;
+                if (!sId) { return; }
+                const aRow = await cds.db.read('mdm.portal.FieldMaster').where({ field_id: sId });
+                await logGroupAssignments(req._auditBefore || null, aRow && aRow[0], req.user?.id || 'system');
+            } catch (e) { console.error('[audit] field-group assignment (update):', e.message); }
+        });
+
+        // ── Block deleting a Validation Rule that is still linked to fields ──
+        this.before('DELETE', 'ValidationRules', async (req) => {
+            const sId = req.data && req.data.validation_id;
+            if (!sId) { return; }
+            const aFields = await SELECT.from('mdm.portal.FieldMaster')
+                .columns('field_id').where({ validation_validation_id: sId });
+            const aCols = await SELECT.from('mdm.portal.GridColumn')
+                .columns('field_field_id').where({ validation_validation_id: sId });
+            const aLinked = [...new Set(
+                aFields.map(f => f.field_id).concat(aCols.map(c => c.field_field_id))
+            )];
+            if (aLinked.length) {
+                return req.reject(409,
+                    `Validation rule "${sId}" is linked to field(s): ${aLinked.join(', ')}. ` +
+                    `Remove the rule from those fields first, then delete it.`);
+            }
+        });
 
         // ── Block deleting a Field Master entry that is still assigned to BP roles ──
         this.before('DELETE', 'FieldMasters', async (req) => {
@@ -1680,10 +1482,6 @@ class MDMPortalService extends cds.ApplicationService {
             // set explicitly here (this previously left "Created On" blank
             // in My Requests for every CR saved through this action).
             const dNow = new Date();
-            // Set below when an existing POSTING_FAILED CR is being
-            // corrected and resubmitted — its previous status/error are
-            // kept for the audit log.
-            let oResubmitOf = null;
 
             try {
                 if (isNew) {
@@ -1732,50 +1530,21 @@ class MDMPortalService extends cds.ApplicationService {
                     if (!existing) {
                         return req.error(404, `Change request ${sCrId} not found`);
                     }
-                    // DRAFT: normal edit. POSTING_FAILED: the request was
-                    // fully approved but S/4HANA rejected the posting —
-                    // the requester corrects the data and it goes through
-                    // the whole approval process again (the approvers
-                    // never saw the corrected values). It can only be
-                    // resubmitted, not parked as a draft: a DRAFT is
-                    // hard-deleted on cancel, which must not happen to a
-                    // request that already carries approval history.
-                    const bPostingFailed = existing.status === 'POSTING_FAILED';
-                    if (existing.status !== 'DRAFT' && !bPostingFailed) {
+                    if (existing.status !== 'DRAFT') {
                         return req.error(400, `Cannot update CR ${sCrId} — status is ${existing.status}`);
-                    }
-                    if (bPostingFailed && !submit) {
-                        return req.error(400,
-                            `CR ${sCrId} failed posting to S/4HANA — it can only be corrected and resubmitted for approval, not saved as a draft.`);
-                    }
-                    if (bPostingFailed && existing.posted_object_no) {
-                        // Should not happen (a successful post sets POSTED),
-                        // but never let a CR that reached S/4 be re-approved
-                        // and re-posted — for CREATE that's a duplicate BP.
-                        return req.error(400,
-                            `CR ${sCrId} already has Business Partner ${existing.posted_object_no} in S/4HANA and cannot be resubmitted.`);
-                    }
-                    if (bPostingFailed) {
-                        oResubmitOf = { status: existing.status, posting_error: existing.posting_error };
                     }
 
                     // ── UPDATE header ────────────────────────────────────
                     await UPDATE('mdm.portal.CRHeader').where({ cr_id: sCrId }).set({
-                        // A draft on an existing BP turns from CHANGE into
-                        // EXTEND (or back) as roles/combinations are added
-                        request_type                   : request_type || existing.request_type,
-                        bp_category_category_id        : bp_category   || null,
-                        account_group_account_group_id : account_group || null,
-                        reference_object_no            : reference_object_no || null,
-                        business_justification         : business_justification || null,
-                        priority                        : sPriority,
-                        status                         : sStatus,
-                        submitted_at                   : submit ? dNow : null,
-                        // The old S/4 error no longer applies to the
-                        // corrected data — a new failure will set it again.
-                        ...(oResubmitOf ? { posting_error: null } : {}),
-                        modifiedAt                      : dNow,
-                        modifiedBy                      : actor
+                        bp_category_category_id: bp_category || null,
+                        account_group_account_group_id: account_group || null,
+                        reference_object_no: reference_object_no || null,
+                        business_justification: business_justification || null,
+                        priority: sPriority,
+                        status: sStatus,
+                        submitted_at: submit ? dNow : null,
+                        modifiedAt: dNow,
+                        modifiedBy: actor
                     });
 
                     // ── Delete old child rows and re-insert fresh ─────────
@@ -1888,19 +1657,15 @@ class MDMPortalService extends cds.ApplicationService {
                 await this.createAuditLog(
                     'CRHeader', sCrId,
                     isNew ? 'CREATE' : (submit ? 'SUBMIT' : 'UPDATE'),
-                    actor,
-                    oResubmitOf,
-                    oResubmitOf ? { status: sStatus, resubmitted_after_posting_failure: true } : null
+                    actor
                 );
 
                 return {
-                    cr_id  : sCrId,
-                    status : sStatus,
-                    message: oResubmitOf
-                        ? `Change request ${sCrId} corrected and resubmitted for approval.`
-                        : submit
-                            ? `Change request ${sCrId} submitted for approval.`
-                            : `Change request ${sCrId} saved as draft.`
+                    cr_id: sCrId,
+                    status: sStatus,
+                    message: submit
+                        ? `Change request ${sCrId} submitted for approval.`
+                        : `Change request ${sCrId} saved as draft.`
                 };
 
             } catch (err) {
@@ -1910,46 +1675,189 @@ class MDMPortalService extends cds.ApplicationService {
             }
         });
 
-        // ─────────────────────────────────────────────────────────────────
-        //  EXISTING BP SEARCH / DISPLAY — read live from S/4HANA through
-        //  integration-service.js (destination DOX_SBX). A failed S/4 call
-        //  is reported as 502 with S/4's own message; the Create BP screen
-        //  treats all three as non-fatal.
-        // ─────────────────────────────────────────────────────────────────
-
+        /**
+         * SearchExistingBPs — lightweight search across posted CRHeaders that
+         * have a reference_object_no (= posted BP number).  In a real landscape
+         * this would call an SAP OData / RFC to search BP master data.
+         * Here we query CRHeader rows whose status = 'POSTED' as a proxy.
+         */
         this.on('SearchExistingBPs', async (req) => {
             const { query = '', country = '', category = '' } = req.data;
-            try {
-                return await integration.searchBusinessPartners({ query, country, category });
-            } catch (err) {
-                const sReason = integration.extractS4Error(err);
-                console.error('[s4] SearchExistingBPs failed:', sReason);
-                return req.error(502, `Business Partner search in S/4HANA failed: ${sReason}`);
+            const db = cds.db;
+
+            // Pull every posted CR that has a BP number
+            let rows = await db.run(
+                SELECT.from('mdm.portal.CRHeader')
+                    .columns('reference_object_no', 'bp_category_category_id',
+                        'account_group_account_group_id', 'requester')
+                    .where({ status: 'POSTED' })
+                    .and('reference_object_no IS NOT NULL')
+            );
+
+            // De-duplicate by BP number (keep first occurrence)
+            const seen = new Set();
+            const unique = [];
+            for (const r of rows) {
+                const bp = r.reference_object_no;
+                if (!seen.has(bp)) { seen.add(bp); unique.push(r); }
             }
+
+            // Client-side filter (small dataset in dev/sandbox)
+            const q = query.toLowerCase();
+            const filtered = unique.filter(r => {
+                if (q && !r.reference_object_no.toLowerCase().includes(q) &&
+                    !(r.requester || '').toLowerCase().includes(q)) { return false; }
+                if (country && !(r.requester || '').toLowerCase().includes(country.toLowerCase())) {
+                    // country filter is best-effort without a proper BP table
+                }
+                if (category && r.bp_category_category_id !== category) { return false; }
+                return true;
+            });
+
+            return filtered.map(r => ({
+                bp_number: r.reference_object_no,
+                name: r.requester || r.reference_object_no,
+                category: r.bp_category_category_id || '',
+                account_group: r.account_group_account_group_id || '',
+                country: '',
+                city: '',
+                status: 'Active'
+            }));
         });
 
+        /**
+         * GetExistingBPData — return general header data for one BP.
+         * In production this calls the SAP BP OData API.  In the sandbox we
+         * reconstruct it from the latest POSTED CRFieldValue rows for that BP.
+         */
         this.on('GetExistingBPData', async (req) => {
             const { bp_number } = req.data;
             if (!bp_number) return req.error(400, 'bp_number is required');
-            try {
-                return await integration.readBusinessPartnerSummary(bp_number);
-            } catch (err) {
-                const sReason = integration.extractS4Error(err);
-                console.error(`[s4] GetExistingBPData ${bp_number} failed:`, sReason);
-                return req.error(502, `Reading Business Partner ${bp_number} from S/4HANA failed: ${sReason}`);
+            const db = cds.db;
+
+            // Find the CR that posted this BP number
+            const cr = await db.run(
+                SELECT.one.from('mdm.portal.CRHeader')
+                    .where({ reference_object_no: bp_number, status: 'POSTED' })
+            );
+
+            if (!cr) {
+                // Return a minimal stub so the UI can still work
+                return {
+                    bp_number,
+                    name: bp_number,
+                    name2: '',
+                    category: '',
+                    account_group: '',
+                    country: '',
+                    city: '',
+                    street: '',
+                    telephone: '',
+                    email: '',
+                    existing_roles: []
+                };
             }
+
+            // Read field values from the posting CR
+            const fvRows = await db.run(
+                SELECT.from('mdm.portal.CRFieldValue')
+                    .where({ cr_id: cr.cr_id })
+            );
+            const fv = {};
+            fvRows.forEach(r => { fv[r.field_field_id] = r.new_value || ''; });
+
+            // Read which roles that CR covered
+            const roleRows = await db.run(
+                SELECT.from('mdm.portal.CRBPRole')
+                    .columns('role_role_id')
+                    .where({ cr_id: cr.cr_id })
+            );
+
+            return {
+                bp_number,
+                name: fv['NAME1'] || bp_number,
+                name2: fv['NAME2'] || '',
+                category: cr.bp_category_category_id || '',
+                account_group: cr.account_group_account_group_id || '',
+                country: fv['COUNTRY'] || '',
+                city: fv['CITY'] || '',
+                street: fv['STREET'] || '',
+                telephone: fv['TELEPHONE'] || '',
+                email: fv['EMAIL'] || '',
+                existing_roles: roleRows.map(r => r.role_role_id)
+            };
         });
 
+        /**
+         * GetBPRoleInstances — returns each saved prerequisite-field combination
+         * for a given BP number + role.  In production this reads from the SAP
+         * company-code / sales-area extension tables.  In the sandbox we read the
+         * CRFieldValue rows grouped by instance_no for matching POSTED CRs.
+         */
         this.on('GetBPRoleInstances', async (req) => {
             const { bp_number, role_id } = req.data;
             if (!bp_number || !role_id) return req.error(400, 'bp_number and role_id are required');
-            try {
-                return await integration.readBPRoleInstances(bp_number, role_id);
-            } catch (err) {
-                const sReason = integration.extractS4Error(err);
-                console.error(`[s4] GetBPRoleInstances ${bp_number}/${role_id} failed:`, sReason);
-                return req.error(502, `Reading role ${role_id} data of Business Partner ${bp_number} from S/4HANA failed: ${sReason}`);
-            }
+            const db = cds.db;
+
+            // Find all POSTED CRs that covered this BP number and this role
+            const crRows = await db.run(
+                SELECT.from('mdm.portal.CRHeader')
+                    .where({ reference_object_no: bp_number, status: 'POSTED' })
+            );
+            if (!crRows.length) return [];
+
+            const crIds = crRows.map(r => r.cr_id);
+
+            // Verify those CRs actually included this role
+            const roleMatches = await db.run(
+                SELECT.from('mdm.portal.CRBPRole')
+                    .where({ role_role_id: role_id })
+                    .and({ cr_id: { in: crIds } })
+            );
+            const matchedCrIds = roleMatches.map(r => r.cr_id);
+            if (!matchedCrIds.length) return [];
+
+            // Fetch prereq field definitions for this role (to know the key fields)
+            const prereqDefs = await db.run(
+                SELECT.from('mdm.portal.BPRolePrereqField')
+                    .columns('field_field_id', 'sequence')
+                    .where({ role_role_id: role_id })
+                    .orderBy('sequence')
+            );
+            const prereqFieldIds = prereqDefs.map(p => p.field_field_id);
+
+            // Fetch all field values for these CRs, grouped by (cr_id, instance_no)
+            const fvRows = await db.run(
+                SELECT.from('mdm.portal.CRFieldValue')
+                    .where({ cr_id: { in: matchedCrIds } })
+                    .and({ role_id })
+                    .orderBy('cr_id', 'instance_no', 'field_field_id')
+            );
+
+            // Build one instance per unique (cr_id, instance_no) combination
+            const instanceMap = new Map();
+            fvRows.forEach(fv => {
+                const key = `${fv.cr_id}::${fv.instance_no}`;
+                if (!instanceMap.has(key)) {
+                    instanceMap.set(key, { cr_id: fv.cr_id, instance_no: fv.instance_no, fields: {} });
+                }
+                instanceMap.get(key).fields[fv.field_field_id] = fv.new_value || '';
+            });
+
+            const instances = Array.from(instanceMap.values());
+            let instanceNo = 1;
+
+            return instances.map(inst => {
+                const keyObj = {};
+                prereqFieldIds.forEach(fid => { keyObj[fid] = inst.fields[fid] || ''; });
+                const keyLabel = prereqFieldIds.map(fid => inst.fields[fid] || '—').join(' / ');
+                return {
+                    instance_no: instanceNo++,
+                    key_label: keyLabel,
+                    key_values: JSON.stringify(keyObj),
+                    field_values: JSON.stringify(inst.fields)
+                };
+            });
         });
 
         await super.init();

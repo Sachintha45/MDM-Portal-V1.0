@@ -721,6 +721,7 @@ sap.ui.define([
                     (aFieldIds.length > 1 ? "s" : "") + " assigned to " + sGroupId + ".");
                 if (this._oAssignFgDialog) { this._oAssignFgDialog.close(); }
                 this._loadAssignedFields();
+                this._loadChangeLog();
             }.bind(this)).catch(function (oErr) {
                 MessageBox.error("Could not assign fields: " + (oErr.message || oErr));
             });
@@ -795,6 +796,7 @@ sap.ui.define([
                         }).then(function () {
                             MessageToast.show("\"" + sFieldId + "\" removed from group.");
                             this._loadAssignedFields();
+                            this._loadChangeLog();
                         }.bind(this)).catch(function (oErr) {
                             MessageBox.error("Could not remove field: " + (oErr.message || oErr));
                         });
@@ -820,11 +822,15 @@ sap.ui.define([
             var oTable   = this.byId("logTable");
             var oBinding = oTable && oTable.getBinding("items");
             if (!oBinding) { return; }
+            // newest first, and re-read every time (an unchanged filter would
+            // otherwise keep serving the rows loaded the first time)
+            oBinding.sort(new Sorter("acted_at", true));
             oBinding.filter([
                 new Filter("entity_name", FilterOperator.EQ, "FieldGroup"),
                 new Filter("entity_key",  FilterOperator.EQ, sGroupId)
             ]);
-            oBinding.resume();
+            if (oBinding.isSuspended && oBinding.isSuspended()) { oBinding.resume(); }
+            else { oBinding.refresh(); }
         },
 
         _fmtDate: function (sVal) {

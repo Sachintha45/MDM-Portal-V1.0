@@ -6,16 +6,17 @@ sap.ui.define([
     "sap/ui/model/Sorter",
     "sap/m/MessageToast",
     "sap/m/MessageBox",
-    "sap/ui/core/format/DateFormat"
+    "sap/ui/core/format/DateFormat",
+    "mdm/portal/util/ValueListEditHelper"
 ], function (
     Controller, JSONModel, Filter, FilterOperator, Sorter,
-    MessageToast, MessageBox, DateFormat
+    MessageToast, MessageBox, DateFormat, ValueListEditHelper
 ) {
     "use strict";
 
     var oDateFmt = DateFormat.getDateTimeInstance({ style: "medium" });
 
-    return Controller.extend("mdm.portal.controller.ValueTableDetail", {
+    return Controller.extend("mdm.portal.controller.ValueTableDetail", Object.assign({}, ValueListEditHelper, {
 
         // ── Lifecycle ────────────────────────────────────────────────
         onInit: function () {
@@ -26,7 +27,9 @@ sap.ui.define([
                 selectedTab : "general",
                 usageCount  : "0",
                 entriesCount: "0",
-                entriesInfo : ""
+                entriesInfo : "",
+                editMode    : false,
+                canEditEntries: false
             });
             this.getView().setModel(this._oViewModel, "view");
 
@@ -54,6 +57,7 @@ sap.ui.define([
             this.getView().getModel("usage").setProperty("/items", []);
             this._oViewModel.setProperty("/usageCount", "0");
             this.getView().getModel("entries").setProperty("/items", []);
+            this._oViewModel.setProperty("/editMode", false);
             this._oViewModel.setProperty("/entriesCount", "0");
 
             this._loadUploadedTables();
@@ -146,6 +150,19 @@ sap.ui.define([
             this._oViewModel.setProperty("/isNew", true);
             this._oViewModel.setProperty("/busy",  false);
 
+            // Detach from the value table that was open before. While that
+            // element binding is still on the view it keeps feeding the old
+            // record into every field, so a "new" value table opened with the
+            // previous one's data.
+            this.getView().unbindObject();
+            // Drop a half-created record left over from an earlier visit.
+            if (this._oCreateContext && this._oCreateContext.isTransient &&
+                this._oCreateContext.isTransient()) {
+                try { this._oCreateContext.delete("$direct"); } catch (e) { /* ignore */ }
+            }
+            this._oCreateContext = null;
+            this.byId("inId").setValue("");
+
             var oModel = this.getOwnerComponent().getModel();
             // Bind list to the SAME update group submitBatch uses
             var oListBinding = oModel.bindList("/ValueTables", null, [], [], {
@@ -163,6 +180,7 @@ sap.ui.define([
                 status        : "ACTIVE"
             });
             this._oCreateListBinding = oListBinding;
+            this._oCreateContext = oContext;
             this.getView().setBindingContext(oContext);
             this._refreshHeader({ value_table_id: "", description: "", status: "ACTIVE" });
             this.byId("inId").setEditable(true);
@@ -352,7 +370,14 @@ sap.ui.define([
             oModel.submitBatch("valueTableUpdate")
                 .then(function () {
                     if (bIsNew && oCtx && oCtx.created) {
-                        return oCtx.created().then(function () { return true; });
+                        // created() is undefined when the form is not bound to
+                        // a newly created record (e.g. an old record was still
+                        // attached) — never call .then on it blindly.
+                        var pCreated = oCtx.created();
+                        if (pCreated && typeof pCreated.then === "function") {
+                            return pCreated.then(function () { return true; });
+                        }
+                        return true;
                     }
                     return false;
                 })
@@ -447,10 +472,22 @@ sap.ui.define([
         // ── Value List Data tab (read-only) ──────────────────────────
         // Shows the uploaded rows whose Table equals this value table's
         // Backend Table. The data itself is loaded on the Value List Upload page.
+        // Supplies what the shared inline-edit helper needs.
+        _vlCtx: function () {
+            var oInput = this.byId("inSourceTable");
+            return {
+                model: this.getView().getModel("entries"), modelName: "entries",
+                table: ((oInput && oInput.getValue()) || "").trim().toUpperCase(),
+                reload: this._loadEntries.bind(this)
+            };
+        },
+
         _loadEntries: function () {
             var oInput = this.byId("inSourceTable");
             var sSource = ((oInput && oInput.getValue()) || "").trim().toUpperCase();
             var oEntries = this.getView().getModel("entries");
+            this._oViewModel.setProperty("/canEditEntries", !!sSource);
+            if (this._oViewModel.getProperty("/editMode")) { return Promise.resolve(); }   // don't overwrite edits
 
             if (!sSource) {
                 oEntries.setProperty("/items", []);
@@ -481,7 +518,7 @@ sap.ui.define([
                     ? "Showing the uploaded rows of table " + sSource + ". Key = " +
                       this._colLabel(this.byId("inOutputKey").getSelectedKey()) + ", Description = " +
                       this._colLabel(this.byId("inOutputDesc").getSelectedKey()) +
-                      ". To change the data, use the Value List Upload page."
+                      ". Use Edit to change values, or the Value List Upload page to load a file."
                     : "No uploaded data found for table " + sSource + ". Upload a file on the Value List Upload page with this table name in the Table column.");
             }.bind(this)).catch(function (e) {
                 MessageBox.error("Could not load value list data: " + (e.message || "Unknown error"));
@@ -597,5 +634,5 @@ sap.ui.define([
         onNavBack: function () {
             this.getOwnerComponent().getRouter().navTo("valueTables");
         }
-    });
+    }));
 });

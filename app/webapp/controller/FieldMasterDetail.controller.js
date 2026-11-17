@@ -43,6 +43,8 @@ sap.ui.define(
       // ── Lifecycle ────────────────────────────────────────────────
 
       onInit: function () {
+        // Role assignments added on the Usage tab, written when the field is saved
+        this.getView().setModel(new JSONModel({ items: [], saved: [], rows: [] }), "pend");
         this._oViewModel = new JSONModel({
           busy: false,
           isNew: false,
@@ -58,6 +60,7 @@ sap.ui.define(
         oRouter
           .getRoute("fieldMasterDetail")
           .attachPatternMatched(this._onRouteMatched, this);
+        this.getView().attachModelContextChange(this._syncDecimals, this);
       },
 
       // ── Lookup loader ────────────────────────────────────────────
@@ -68,6 +71,7 @@ sap.ui.define(
           displayTypes: [],
           valueTables: [],
           validationRules: [],
+          validationRulesAll: [],
           dataTypes: [],
           mainGroups: [],
         });
@@ -131,14 +135,16 @@ sap.ui.define(
             aCtx.forEach(function (c) {
               aItems.push({
                 key: c.getProperty("validation_id"),
+                fn: c.getProperty("function_name"),
                 text:
                   c.getProperty("validation_id") +
                   " — " +
                   c.getProperty("function_name"),
               });
             });
-            oLookupsModel.setProperty("/validationRules", aItems);
-          });
+            oLookupsModel.setProperty("/validationRulesAll", aItems);
+            this._syncValidationRules();
+          }.bind(this));
 
         oModel
           .bindList(
@@ -171,11 +177,20 @@ sap.ui.define(
         var sFieldId = sRaw === "NEW" ? "NEW" : sRaw.toUpperCase();
         // Reset dirty flag on every navigation
         this._oViewModel.setProperty("/isDirty", false);
+        this.getView().getModel("pend").setProperty("/items", []);
+        this._sVtShown = undefined;   // force the Value Table Details box to refresh
+        this.getView().getModel("pend").setProperty("/saved", []);
+        this._refreshUsageRows();
 
         if (sFieldId === "NEW") {
           this._createNewField();
         } else {
           this._bindField(sFieldId);
+        }
+        // data arrives asynchronously: re-check once it has rendered
+        [150, 600, 1500].forEach(function (n) { setTimeout(this._syncDecimals.bind(this), n); }.bind(this));
+        if (this._oViewModel.getProperty("/selectedTab") === "changelog") {
+          setTimeout(this._loadChangeLog.bind(this), 300);
         }
       },
 
@@ -278,6 +293,7 @@ sap.ui.define(
               // the same issue already fixed in onCopy below.
               this.getView().unbindObject();
               this.getView().setBindingContext(oContext);
+              this._clearValueHelp();
               this._updateHeader({ field_id: "New Field", description: "" });
               this._oViewModel.setProperty("/busy", false);
             }.bind(this),
@@ -302,6 +318,7 @@ sap.ui.define(
               });
               this.getView().unbindObject();
               this.getView().setBindingContext(oContext);
+              this._clearValueHelp();
               this._updateHeader({ field_id: "New Field", description: "" });
               this._oViewModel.setProperty("/busy", false);
             }.bind(this),
@@ -355,6 +372,157 @@ sap.ui.define(
         this._oViewModel.setProperty("/isDirty", true);
       },
 
+      // Decimals only make sense for DECIMAL: the input is enabled by an
+      // expression binding in the view (enabled="{= ${data_type} === 'DECIMAL' }");
+      // here we clear any leftover decimals when switching to another type so
+      // a stale value is never saved.
+      // Imperative enable/disable (does not depend on binding timing):
+      // runs on data type change, whenever the view's binding context or
+      // model data changes (load, navigation, new/copy) and after saves.
+      _syncDecimals: function () {
+        var oIn = this.byId("inDecimals");
+        var oSel = this.byId("selDataType");
+        if (!oIn || !oSel) { return; }
+        var oCtx = this.getView().getBindingContext();
+        var sType = oSel.getSelectedKey() || (oCtx && oCtx.getProperty("data_type")) || "";
+        oIn.setEnabled(sType === "DECIMAL");
+        this._syncValidationRules();
+        this._syncValueHelp();
+      },
+
+      // The Value Table (and its details) only apply to Search Help.
+      // For every other display type they are hidden.
+      // The "Value Table Details" box (source table / output key / output
+      // description) used to be filled only when the field's data was first
+      // received. Opening a field whose data was already cached, or coming
+      // back to one, skipped that and left the box showing dashes. Check on
+      // every sync which value table the field has and refresh when it changed.
+      _refreshVtPreview: function () {
+        var oCtx = this.getView().getBindingContext();
+        var sId = oCtx && oCtx.getProperty("value_table_value_table_id");
+        if (sId === this._sVtShown) { return; }
+        if (sId === undefined) { return; }            // data not there yet
+        this._sVtShown = sId;
+        this._updateValueTablePreview(sId ? { value_table_id: sId } : null);
+      },
+
+      // Which data types each validation function makes sense for. A rule not
+      // listed here (a custom one) is offered for every data type.
+      _VALIDATION_TYPES: {
+        checkNumeric:     ["INTEGER", "DECIMAL"],
+        checkEmailFormat: ["STRING"],
+        checkDateRange:   ["DATE"],
+        checkMaxLength:   ["STRING"]
+      },
+
+      _ruleFits: function (sFn, sType) {
+        var a = this._VALIDATION_TYPES[sFn];
+        return !a || !sType || a.indexOf(sType) >= 0;
+      },
+
+      _currentDataType: function () {
+        var oSel = this.byId("selDataType");
+        var oCtx = this.getView().getBindingContext();
+        return (oSel && oSel.getSelectedKey()) || (oCtx && oCtx.getProperty("data_type")) || "";
+      },
+
+      // Offer only the validation rules that fit the field's data type, and
+      // drop an already-chosen rule that no longer fits (for example a date
+      // check on a Decimal field).
+      _syncValidationRules: function (bClear) {
+        var oLk = this.getView().getModel("lookups");
+        if (!oLk) { return; }
+        var sType = this._currentDataType();
+        var aAll = oLk.getProperty("/validationRulesAll") || [];
+        oLk.setProperty("/validationRules", aAll.filter(function (r) {
+          return !r.key || this._ruleFits(r.fn, sType);
+        }.bind(this)));
+        if (!bClear) { return; }
+        var oCtx = this.getView().getBindingContext();
+        var sKey = oCtx && oCtx.getProperty("validation_validation_id");
+        if (!sKey) { return; }
+        var oRule = aAll.filter(function (r) { return r.key === sKey; })[0];
+        if (oRule && !this._ruleFits(oRule.fn, sType)) {
+          oCtx.setProperty("validation_validation_id", null);
+          var oVal = this.byId("selValidation");
+          if (oVal) { oVal.setSelectedKey(""); }
+          this._clearValidationPreview();
+          sap.m.MessageToast.show("Validation rule cleared \u2014 it does not apply to data type " + sType + ".");
+        }
+      },
+
+      // A brand-new field must start with no value table. The Select keeps
+      // showing the previous field's choice when the new record has no value
+      // for it, and the details box keeps its old text, so reset both.
+      _clearValueHelp: function () {
+        var oSel = this.byId("selValueTable");
+        if (oSel) { oSel.setSelectedKey(""); }
+        ["vtSource", "vtOutputKey", "vtOutputDesc"].forEach(function (id) {
+          var o = this.byId(id); if (o) { o.setText("\u2014"); }
+        }.bind(this));
+        this._sVtShown = null;
+        this._syncValueHelp();
+        // same for the Validation tab: the rule, trigger and preview of the
+        // previous field must not carry over into a new one
+        var oVal = this.byId("selValidation");
+        if (oVal) { oVal.setSelectedKey(""); }
+        var oTrg = this.byId("selTrigger");
+        if (oTrg) { oTrg.setSelectedKey("CHANGE"); }
+        this._clearValidationPreview();
+        this._syncValidationRules();
+      },
+
+      _syncValueHelp: function () {
+        this._refreshVtPreview();
+        var oSel = this.byId("selDisplayType");
+        var oVb = this.byId("vbValueTable");
+        var oPn = this.byId("pnlValueTablePreview");
+        if (!oSel || !oVb || !oPn) { return; }
+        var oCtx = this.getView().getBindingContext();
+        var sType = oSel.getSelectedKey() || (oCtx && oCtx.getProperty("display_type")) || "";
+        var bShow = sType === "SEARCH_HELP";
+        oVb.setVisible(bShow);
+        oPn.setVisible(bShow);
+      },
+
+      onDisplayTypeChange: function () {
+        var sType = this.byId("selDisplayType").getSelectedKey();
+        if (sType !== "SEARCH_HELP") {
+          // drop any previously chosen value table so a stale link is not saved
+          var oCtx = this.getView().getBindingContext();
+          if (oCtx && oCtx.getProperty("value_table_value_table_id")) {
+            oCtx.setProperty("value_table_value_table_id", null);
+          }
+          this.byId("selValueTable").setSelectedKey("");
+          ["vtSource", "vtOutputKey", "vtOutputDesc"].forEach(function (id) {
+            var o = this.byId(id); if (o) { o.setText("\u2014"); }
+          }.bind(this));
+        }
+        this._syncValueHelp();
+        this.onFieldChange();
+      },
+
+      onDataTypeChange: function () {
+        var oCtx = this.getView().getBindingContext();
+        var sType = this.byId("selDataType").getSelectedKey();
+        if (oCtx && sType !== "DECIMAL" && oCtx.getProperty("decimals") !== null
+            && oCtx.getProperty("decimals") !== undefined) {
+          oCtx.setProperty("decimals", null);
+        }
+        this._syncDecimals();
+        this._syncValidationRules(true);
+        this.onFieldChange();
+      },
+
+      // Same rule inside the Add/Edit Grid Column dialog.
+      _onGridDataTypeChange: function () {
+        var oD = this._oGridColumnDialog;
+        if (!oD) { return; }
+        var bDec = oD._oDataType.getSelectedKey() === "DECIMAL";
+        oD._oDecimalsInput.setEnabled(bDec);
+        if (!bDec) { oD._oDecimalsInput.setValue(""); }
+      },
+
       onGridSwitchChange: function (oEvent) {
         this.onFieldChange();
       },
@@ -406,6 +574,7 @@ sap.ui.define(
       onValueTableChange: function (oEvent) {
         var sKey = oEvent.getSource().getSelectedKey();
         this._oViewModel.setProperty("/isDirty", true); // mark dirty
+        this._sVtShown = sKey || null;
         this._updateValueTablePreview(sKey ? { value_table_id: sKey } : null);
       },
 
@@ -486,15 +655,145 @@ sap.ui.define(
       // ── Tab 5: Usage ─────────────────────────────────────────────
 
       onUsageRowPress: function (oEvent) {
-        var oCtx = oEvent.getSource().getBindingContext();
-        var sRoleId = oCtx.getProperty("role_role_id");
-        if (sRoleId) {
+        var o = oEvent.getSource().getBindingContext("pend").getObject();
+        if (o && !o.pending && o.role_id) {
           this.getOwnerComponent()
             .getRouter()
-            .navTo("bpRoleDetail", {
-              roleId: encodeURIComponent(sRoleId.toLowerCase()),
-            });
+            .navTo("bpRoleDetail", { roleId: encodeURIComponent(o.role_id.toLowerCase()) });
         }
+      },
+
+      // Rebuilds the single usage list: saved assignments + pending ones.
+      _refreshUsageRows: function () {
+        var oPend = this.getView().getModel("pend");
+        var aSaved = oPend.getProperty("/saved") || [];
+        var aPending = (oPend.getProperty("/items") || []).map(function (o) {
+          return Object.assign({}, o, { pending: true });
+        });
+        var aRows = aSaved.concat(aPending);
+        oPend.setProperty("/rows", aRows);
+        var oTxt = this.byId("usageCount");
+        if (oTxt) {
+          oTxt.setText(aRows.length + " role assignment" + (aRows.length !== 1 ? "s" : ""));
+        }
+      },
+
+      // Opens the "Assign to BP Role" dialog. Works for new and existing fields:
+      // the choice is staged in the "pend" model and written on Save.
+      onUsageAssign: function () {
+        if (!this._oUsageDlg) {
+          var oRole = new Select({ width: "100%", forceSelection: false });
+          var oStatus = new Select({ width: "100%", selectedKey: "OPTIONAL", items: [
+            new Item({ key: "REQUIRED", text: "Required" }),
+            new Item({ key: "OPTIONAL", text: "Optional" }),
+            new Item({ key: "SUPPRESS", text: "Suppress" })
+          ] });
+          var oSeq = new Input({ type: "Number", value: "10", width: "100%" });
+          var oRo = new Switch({ state: false, customTextOn: "Yes", customTextOff: "No" });
+          this._oUsageDlg = new Dialog({
+            title: "Assign Field to BP Role",
+            contentWidth: "28rem",
+            content: new SimpleForm({
+              editable: true, layout: "ResponsiveGridLayout",
+              content: [
+                new Label({ text: "BP Role", required: true }), oRole,
+                new Label({ text: "Field Status" }), oStatus,
+                new Label({ text: "Sequence" }), oSeq,
+                new Label({ text: "Read Only" }), oRo
+              ]
+            }),
+            beginButton: new Button({ text: "Add", type: "Emphasized",
+              press: this._onUsageAssignConfirm.bind(this) }),
+            endButton: new Button({ text: "Cancel",
+              press: function () { this._oUsageDlg.close(); }.bind(this) })
+          });
+          this._oUsageDlg._c = { role: oRole, status: oStatus, seq: oSeq, ro: oRo };
+          this.getView().addDependent(this._oUsageDlg);
+        }
+        var c = this._oUsageDlg._c;
+        // Next free sequence = highest pending sequence + 10
+        var aPend = this.getView().getModel("pend").getProperty("/items");
+        var iMax = aPend.reduce(function (m, o) { return Math.max(m, o.sequence || 0); }, 0);
+        c.seq.setValue(String(iMax + 10));
+        c.status.setSelectedKey("OPTIONAL");
+        c.ro.setState(false);
+        c.role.setSelectedKey("");
+        c.role.removeAllItems();
+        this.getView().getModel().bindList("/BPRoles", null, [new Sorter("role_id")], [
+          new Filter("active", FilterOperator.EQ, true)
+        ]).requestContexts(0, 500).then(function (aCtx) {
+          aCtx.forEach(function (x) {
+            c.role.addItem(new Item({
+              key: x.getProperty("role_id"),
+              text: x.getProperty("role_id") + " \u2014 " + (x.getProperty("description") || "")
+            }));
+          });
+        });
+        this._oUsageDlg.open();
+      },
+
+      _onUsageAssignConfirm: function () {
+        var c = this._oUsageDlg._c;
+        var sRole = c.role.getSelectedKey();
+        if (!sRole) { MessageBox.error("Please select a BP Role."); return; }
+        var oPend = this.getView().getModel("pend");
+        var aItems = oPend.getProperty("/items").slice();
+        var bAssigned = (oPend.getProperty("/saved") || []).some(function (x) {
+          return x.role_id === sRole;
+        });
+        if (bAssigned || aItems.some(function (o) { return o.role_id === sRole; })) {
+          MessageBox.error("This field is already assigned to role " + sRole + ".");
+          return;
+        }
+        var sText = c.role.getSelectedItem() ? c.role.getSelectedItem().getText() : sRole;
+        aItems.push({
+          role_id: sRole,
+          description: sText.indexOf(" \u2014 ") >= 0 ? sText.split(" \u2014 ").slice(1).join(" \u2014 ") : "",
+          field_status: c.status.getSelectedKey() || "OPTIONAL",
+          sequence: parseInt(c.seq.getValue(), 10) || 10,
+          read_only: c.ro.getState()
+        });
+        oPend.setProperty("/items", aItems);
+        this._refreshUsageRows();
+        this._oViewModel.setProperty("/isDirty", true);
+        this._oUsageDlg.close();
+      },
+
+      onUsagePendingRemove: function (oEvent) {
+        var oPend = this.getView().getModel("pend");
+        var o = oEvent.getSource().getBindingContext("pend").getObject();
+        oPend.setProperty("/items", oPend.getProperty("/items").filter(function (x) {
+          return x.role_id !== o.role_id;
+        }));
+        this._refreshUsageRows();
+      },
+
+      // Writes the staged role assignments. Called after the field itself has
+      // been saved, so for a new field the FieldMaster row already exists.
+      _savePendingAssignments: function (sFieldId) {
+        var oPend = this.getView().getModel("pend");
+        var aItems = oPend.getProperty("/items") || [];
+        if (!aItems.length) { return Promise.resolve(); }
+        var oModel = this.getView().getModel();
+        var oLB = oModel.bindList("/BPRoleFields", null, [], [], { $$updateGroupId: "fieldUsageAssign" });
+        aItems.forEach(function (o) {
+          oLB.create({
+            role_role_id: o.role_id,
+            field_field_id: sFieldId,
+            field_status: o.field_status,
+            sequence: o.sequence,
+            read_only: !!o.read_only
+          });
+        });
+        return oModel.submitBatch("fieldUsageAssign").then(function () {
+          oPend.setProperty("/items", []);
+          this._loadUsage();
+          MessageToast.show(aItems.length + " role assignment(s) saved.");
+        }.bind(this)).catch(function (e) {
+          try { oModel.resetChanges("fieldUsageAssign"); } catch (x) { /* nothing pending */ }
+          MessageBox.error("The field was saved, but the role assignment failed: " +
+            ((e && e.message) || "Unknown error") + "\nAdd it again from the Usage tab.");
+        });
       },
 
       // ── Save ─────────────────────────────────────────────────────
@@ -555,7 +854,21 @@ sap.ui.define(
           return;
         }
 
-        // A Dropdown or Search Help display type renders a value list — without a
+        // The validation rule must fit the data type (no date check on a decimal).
+        var oCtxV = this.getView().getBindingContext();
+        var sValId = oCtxV && oCtxV.getProperty("validation_validation_id");
+        if (sValId) {
+          var oRuleV = (this.getView().getModel("lookups").getProperty("/validationRulesAll") || [])
+            .filter(function (r) { return r.key === sValId; })[0];
+          var sTypeV = this._currentDataType();
+          if (oRuleV && !this._ruleFits(oRuleV.fn, sTypeV)) {
+            MessageBox.error("Validation rule " + sValId + " (" + oRuleV.fn + ") cannot be used with data type " +
+              sTypeV + ". Choose a matching rule or remove it on the Validation tab.");
+            return;
+          }
+        }
+
+        // A Search Help display type renders a value list — without a
         // Value Table mapped, it would show with nothing to select. Require one
         // before saving so the field is actually usable once created.
         // Skipped for grid fields: display_type/value_table on this tab describe
@@ -566,8 +879,8 @@ sap.ui.define(
         var bGrid = this.byId("swGrid").getState();
         var sDisplayType = this.byId("selDisplayType").getSelectedKey();
         var sValueTable  = this.byId("selValueTable").getSelectedKey();
-        if (!bGrid && (sDisplayType === "DROPDOWN" || sDisplayType === "SEARCH_HELP") && !sValueTable) {
-          MessageBox.error("A Value Table is required when Display Type is Dropdown or Search Help. Select one on the Value Help tab before saving.");
+        if (!bGrid && sDisplayType === "SEARCH_HELP" && !sValueTable) {
+          MessageBox.error("A Value Table is required when Display Type is Search Help. Select one on the Value Help tab before saving.");
           this.byId("detailTabs").setSelectedKey("valuehelp");
           return;
         }
@@ -613,9 +926,18 @@ sap.ui.define(
               )
               .then(
                 function (bWasCreated) {
+                  // field row exists now -> write staged role assignments
+                  return this._savePendingAssignments(sFieldId).then(function () { return bWasCreated; });
+                }.bind(this)
+              )
+              .then(
+                function (bWasCreated) {
                   this._oViewModel.setProperty("/busy", false);
                   this._oViewModel.setProperty("/isDirty", false);
                   MessageToast.show("Field saved successfully.");
+                  // the audit row is written by the server during this save —
+                  // re-read the log so the second, third… change shows up
+                  this._loadChangeLog();
 
                   if (bWasCreated) {
                     // Showing the toast and navigating away in the same tick lets the
@@ -799,48 +1121,32 @@ sap.ui.define(
       },
 
       _loadUsage: function () {
-        // Never attempt to load usage data for an unsaved new field.
-        // The transient OData V4 context created by listBinding.create()
-        // has field_id = "" at creation time, but between navigation and
-        // the setBindingContext() call completing, getBindingContext() can
-        // still return the *previous* field's context — causing _loadUsage
-        // to query BPRoleFields with that stale field_id and showing the
-        // previous field's role assignments on the new-field form.
+        var oPend = this.getView().getModel("pend");
+        // A new (unsaved) field has no saved assignments yet; also avoids
+        // showing the previous field's data while the new context settles.
         if (this._oViewModel.getProperty("/isNew")) {
-          // Clear any stale data from a previous field's usage load
-          var oUsageModel = this.getView().getModel("usage");
-          if (oUsageModel) { oUsageModel.setProperty("/items", []); }
-          this.byId("usageCount") && this.byId("usageCount").setText("0 role assignments");
+          oPend.setProperty("/saved", []);
+          this._refreshUsageRows();
           return;
         }
-
         var oCtx = this.getView().getBindingContext();
-        if (!oCtx) {
-          return;
-        }
-        var sFieldId = oCtx.getProperty("field_id");
-        if (!sFieldId) {
-          return;
-        }
+        var sFieldId = oCtx && oCtx.getProperty("field_id");
+        if (!sFieldId) { return; }
 
-        var oTable = this.byId("usageTable");
-        var oBinding = oTable.getBinding("items");
-        if (!oBinding) {
-          return;
-        }
-
-        oBinding.filter([
-          new Filter("field_field_id", FilterOperator.EQ, sFieldId),
-        ]);
-        oBinding.attachEventOnce(
-          "dataReceived",
-          function () {
-            var iCount = oBinding.getLength();
-            this.byId("usageCount").setText(
-              iCount + " role assignment" + (iCount !== 1 ? "s" : ""),
-            );
-          }.bind(this),
-        );
+        this.getView().getModel().bindList("/BPRoleFields", null, [new Sorter("sequence")], [
+          new Filter("field_field_id", FilterOperator.EQ, sFieldId)
+        ], { $expand: "role($select=role_id,description)" }).requestContexts(0, 500).then(function (aCtx) {
+          oPend.setProperty("/saved", aCtx.map(function (c) {
+            return {
+              role_id: c.getProperty("role_role_id"),
+              description: c.getProperty("role/description") || "",
+              field_status: c.getProperty("field_status"),
+              sequence: c.getProperty("sequence"),
+              read_only: !!c.getProperty("read_only")
+            };
+          }));
+          this._refreshUsageRows();
+        }.bind(this)).catch(function () {});
       },
 
       _loadChangeLog: function () {
@@ -859,11 +1165,50 @@ sap.ui.define(
         var oTable = this.byId("logTable");
         var oBinding = oTable && oTable.getBinding("items");
         if (!oBinding) { return; }
+        // Newest change first, and always re-read from the server: with an
+        // unchanged filter the list binding would otherwise keep serving the
+        // rows it loaded the first time, so later changes never appeared.
+        oBinding.sort(new Sorter("acted_at", true));
         oBinding.filter([
           new Filter("entity_name", FilterOperator.EQ, "FieldMaster"),
           new Filter("entity_key",  FilterOperator.EQ, sFieldId),
         ]);
-        oBinding.resume();
+        if (oBinding.isSuspended && oBinding.isSuspended()) { oBinding.resume(); }
+        else { oBinding.refresh(); }
+      },
+
+      // ── Change Log cell text: show only what actually changed ──────
+      _LOG_SKIP: ["createdAt", "createdBy", "modifiedAt", "modifiedBy"],
+
+      _logParse: function (s) {
+        if (!s) { return null; }
+        try { return JSON.parse(s); } catch (e) { return null; }
+      },
+
+      _logSame: function (a, b) {
+        return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+      },
+
+      _logText: function (oVal, oOther, sAction) {
+        if (!oVal) { return ""; }
+        var aKeys = Object.keys(oVal).filter(function (k) {
+          return this._LOG_SKIP.indexOf(k) < 0;
+        }.bind(this));
+        if (sAction === "UPDATE" && oOther) {
+          aKeys = aKeys.filter(function (k) { return !this._logSame(oVal[k], oOther[k]); }.bind(this));
+        }
+        return aKeys.map(function (k) {
+          var v = oVal[k];
+          return k + ": " + (v === null || v === undefined || v === "" ? "\u2014" : v);
+        }).join("\n");
+      },
+
+      fmtLogBefore: function (sBefore, sAfter, sAction) {
+        return this._logText(this._logParse(sBefore), this._logParse(sAfter), sAction);
+      },
+
+      fmtLogAfter: function (sBefore, sAfter, sAction) {
+        return this._logText(this._logParse(sAfter), this._logParse(sBefore), sAction);
       },
 
       _fmtDate: function (sVal) {
@@ -952,7 +1297,8 @@ sap.ui.define(
           var oDescInput   = new Input({ placeholder: "Display label" });
           var oDataType    = new Select({
             width: "100%", forceSelection: false,
-            items: { path: "lookups>/dataTypes", template: new Item({ key: "{lookups>key}", text: "{lookups>text}" }) }
+            items: { path: "lookups>/dataTypes", template: new Item({ key: "{lookups>key}", text: "{lookups>text}" }) },
+            change: function () { this._onGridDataTypeChange(); }.bind(this)
           });
           var oLengthInput   = new Input({ type: "Number", placeholder: "Max length" });
           var oDecimalsInput = new Input({ type: "Number", placeholder: "Decimal places" });
@@ -966,12 +1312,12 @@ sap.ui.define(
             items: { path: "lookups>/displayTypes", template: new Item({ key: "{lookups>key}", text: "{lookups>text}" }) },
             change: function () {
               var sType = oDisplayType.getSelectedKey();
-              oValueTableLabel.setRequired(sType === "DROPDOWN" || sType === "SEARCH_HELP");
+              oValueTableLabel.setRequired(sType === "SEARCH_HELP");
             }
           });
           var oValidation   = new Select({
             width: "100%", forceSelection: false,
-            items: { path: "lookups>/validationRules", template: new Item({ key: "{lookups>key}", text: "{lookups>text}" }) }
+            items: { path: "lookups>/validationRulesAll", template: new Item({ key: "{lookups>key}", text: "{lookups>text}" }) }
           });
           var oSourceTable = new Input({ placeholder: "Source SAP table (optional)" });
           var oSourceField = new Input({ placeholder: "Source SAP field (optional)" });
@@ -1027,7 +1373,16 @@ sap.ui.define(
                   MessageBox.error("Column Name can't contain /, >, {, or } \u2014 these have special meaning in how the value is displayed and would prevent it from showing correctly. Try something like \"" + sName.replace(/[/>{}]/g, "") + "\" instead.");
                   return;
                 }
-                if ((sDisplay === "DROPDOWN" || sDisplay === "SEARCH_HELP") && !oValueTable.getSelectedKey()) {
+                var sGridVal = oValidation.getSelectedKey();
+                if (sGridVal) {
+                  var oGridRule = (this.getView().getModel("lookups").getProperty("/validationRulesAll") || [])
+                    .filter(function (r) { return r.key === sGridVal; })[0];
+                  if (oGridRule && !this._ruleFits(oGridRule.fn, oDataType.getSelectedKey())) {
+                    MessageBox.error("Validation rule " + sGridVal + " cannot be used with data type " + oDataType.getSelectedKey() + ".");
+                    return;
+                  }
+                }
+                if (sDisplay === "SEARCH_HELP" && !oValueTable.getSelectedKey()) {
                   MessageBox.error("Display Type \"" + sDisplay + "\" requires a Value Table.");
                   return;
                 }
@@ -1102,6 +1457,8 @@ sap.ui.define(
           oD._oSourceTable.setValue(oExistingCtx.getProperty("source_table") || "");
           oD._oSourceField.setValue(oExistingCtx.getProperty("source_field") || "");
           oD._oActiveSwitch.setState(this._isGridColActive(oExistingCtx.getProperty("active")));
+          this._onGridDataTypeChange();
+          oD._oDecimalsInput.setValue(oExistingCtx.getProperty("decimals") || "");
         } else {
           oD.setTitle("Add Grid Column");
           oD.getBeginButton().setText("Add");
@@ -1117,6 +1474,7 @@ sap.ui.define(
           oD._oSourceTable.setValue("");
           oD._oSourceField.setValue("");
           oD._oActiveSwitch.setState(true);
+          this._onGridDataTypeChange();
         }
 
         oD.open();
