@@ -3,105 +3,88 @@
     xmlns:mvc="sap.ui.core.mvc"
     xmlns="sap.m"
     xmlns:core="sap.ui.core"
+    xmlns:f="sap.f"
     controllerName="mdm.portal.controller.Welcome"
     displayBlock="true">
 
-    <Page id="welcomePage" showHeader="false">
-        <content>
-            <VBox alignItems="Center" class="sapUiLargeMargin">
+    <!-- Same page frame as the other screens: DynamicPage, title on the left,
+         primary action on the right of the same line. -->
+    <f:DynamicPage id="welcomePage" fitContent="true"
+        toggleHeaderOnTitleClick="false" headerExpanded="true" preserveHeaderStateOnScroll="false"
+        busy="{home>/busy}" busyIndicatorDelay="300"
+        class="sapUiSizeCondensed sapMDMFieldMasterPage">
 
-                <VBox alignItems="Center" width="42rem" class="sapUiLargeMarginTop sapUiLargeMarginBottom">
-                    <Title text="MDM Portal — Configuration" level="H1" textAlign="Center"
-                           class="sapUiTinyMarginBottom"/>
-                    <Text text="Central configuration hub for the MDM Portal. Pick a module below to get started."
-                          textAlign="Center"/>
-                </VBox>
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading>
+                    <VBox>
+                        <Title text="{home>/greeting}" level="H2" wrapping="false"/>
+                        <Text text="{home>/subtitle}" class="sapUiTinyMarginTop"/>
+                    </VBox>
+                </f:heading>
+                <f:snappedHeading>
+                    <Title text="{home>/greeting}" level="H3" wrapping="false"/>
+                </f:snappedHeading>
+            </f:DynamicPageTitle>
+        </f:title>
 
-                <FlexBox wrap="Wrap" justifyContent="Center" width="56rem">
+        <f:content>
+            <ScrollContainer height="100%" width="100%" vertical="true" horizontal="false" class="mdmListScroll">
+            <VBox class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop sapUiSmallMarginBottom">
 
-                    <GenericTile frameType="TwoByOne" class="sapUiTinyMargin" press=".onTilePress"
-                                 header="Field Master"
-                                 subheader="Central registry of all fields across master data types.">
-                        <customData>
-                            <core:CustomData key="route" value="fieldMaster"/>
-                        </customData>
-                        <TileContent><core:Icon src="sap-icon://form" size="1.5rem"/></TileContent>
+                <!-- What is going on, for this user only -->
+                <FlexBox wrap="Wrap" class="sapUiSmallMarginBottom">
+                    <GenericTile header="Awaiting my approval" subheader="{home>/kpi/pendingNote}"
+                                 visible="{home>/isApprover}" press=".onKpiPress" class="sapUiTinyMargin mdmKpiTile">
+                        <customData><core:CustomData key="route" value="myApprovals"/></customData>
+                        <TileContent>
+                            <NumericContent value="{home>/kpi/pending}" valueColor="Critical" withMargin="false"/>
+                        </TileContent>
                     </GenericTile>
-
-                    <GenericTile frameType="TwoByOne" class="sapUiTinyMargin" press=".onTilePress"
-                                 header="Field Groups"
-                                 subheader="Two-level hierarchy for organizing fields on screen.">
-                        <customData>
-                            <core:CustomData key="route" value="fieldGroups"/>
-                        </customData>
-                        <TileContent><core:Icon src="sap-icon://group" size="1.5rem"/></TileContent>
+                    <GenericTile header="My open requests" subheader="{home>/kpi/openNote}"
+                                 press=".onKpiPress" class="sapUiTinyMargin mdmKpiTile">
+                        <customData><core:CustomData key="route" value="myRequests"/></customData>
+                        <TileContent>
+                            <NumericContent value="{home>/kpi/open}" valueColor="Neutral" withMargin="false"/>
+                        </TileContent>
                     </GenericTile>
-
-                    <GenericTile frameType="TwoByOne" class="sapUiTinyMargin" press=".onTilePress"
-                                 header="Validation Rules"
-                                 subheader="Reusable validation functions with configurable parameters.">
-                        <customData>
-                            <core:CustomData key="route" value="validationRules"/>
-                        </customData>
-                        <TileContent><core:Icon src="sap-icon://validate" size="1.5rem"/></TileContent>
+                    <GenericTile header="Returned / rejected" subheader="{home>/kpi/returnedNote}"
+                                 press=".onKpiPress" class="sapUiTinyMargin mdmKpiTile">
+                        <customData><core:CustomData key="route" value="myRequests"/></customData>
+                        <TileContent>
+                            <NumericContent value="{home>/kpi/returned}" valueColor="Error" withMargin="false"/>
+                        </TileContent>
                     </GenericTile>
-
-                    <GenericTile frameType="TwoByOne" class="sapUiTinyMargin" press=".onTilePress"
-                                 header="Value Tables"
-                                 subheader="Data source for dropdowns and search helps.">
-                        <customData>
-                            <core:CustomData key="route" value="valueTables"/>
-                        </customData>
-                        <TileContent><core:Icon src="sap-icon://table-view" size="1.5rem"/></TileContent>
+                    <GenericTile header="Posted this week" subheader="{home>/kpi/postedNote}"
+                                 press=".onKpiPress" class="sapUiTinyMargin mdmKpiTile">
+                        <customData><core:CustomData key="route" value="myRequests"/></customData>
+                        <TileContent>
+                            <NumericContent value="{home>/kpi/posted}" valueColor="Good" withMargin="false"/>
+                        </TileContent>
                     </GenericTile>
-
-                    <GenericTile frameType="TwoByOne" class="sapUiTinyMargin" press=".onTilePress"
-                                 header="Value List Upload"
-                                 subheader="Upload value help data (Table, Area, Field Values) for all value tables.">
-                        <customData>
-                            <core:CustomData key="route" value="valueListUpload"/>
-                        </customData>
-                        <TileContent><core:Icon src="sap-icon://upload" size="1.5rem"/></TileContent>
-                    </GenericTile>
-
-                    <GenericTile frameType="TwoByOne" class="sapUiTinyMargin" press=".onTilePress"
-                                 header="BP Categories"
-                                 subheader="Classify Business Partners as Person, Organization, or Group.">
-                        <customData>
-                            <core:CustomData key="route" value="bpCategories"/>
-                        </customData>
-                        <TileContent><core:Icon src="sap-icon://customer" size="1.5rem"/></TileContent>
-                    </GenericTile>
-
-                    <GenericTile frameType="TwoByOne" class="sapUiTinyMargin" press=".onTilePress"
-                                 header="BP Roles"
-                                 subheader="Assign fields and prerequisites to each BP role.">
-                        <customData>
-                            <core:CustomData key="route" value="bpRoles"/>
-                        </customData>
-                        <TileContent><core:Icon src="sap-icon://role" size="1.5rem"/></TileContent>
-                    </GenericTile>
-
-                    <GenericTile frameType="TwoByOne" class="sapUiTinyMargin" press=".onTilePress"
-                                 header="Account Groups"
-                                 subheader="Number ranges and field overrides per account group.">
-                        <customData>
-                            <core:CustomData key="route" value="accountGroups"/>
-                        </customData>
-                        <TileContent><core:Icon src="sap-icon://accounts" size="1.5rem"/></TileContent>
-                    </GenericTile>
-
-                    <GenericTile frameType="TwoByOne" class="sapUiTinyMargin" press=".onTilePress"
-                                 header="Create Business Partner"
-                                 subheader="Pick a category and roles — fields merge across both, live.">
-                        <customData>
-                            <core:CustomData key="route" value="createBP"/>
-                        </customData>
-                        <TileContent><core:Icon src="sap-icon://add-contact" size="1.5rem"/></TileContent>
-                    </GenericTile>
-
                 </FlexBox>
+
+                <FlexBox wrap="Wrap" alignItems="Start">
+                    <Panel headerText="Needs your action" width="100%" class="sapUiTinyMargin">
+                        <layoutData><FlexItemData growFactor="3" baseSize="28rem"/></layoutData>
+                        <List items="{home>/actions}" noDataText="Nothing needs your action right now.">
+                            <StandardListItem title="{home>title}" description="{home>description}"
+                                              info="{home>tag}" infoState="{home>tagState}"
+                                              type="Navigation" press=".onActionPress"/>
+                        </List>
+                    </Panel>
+
+                    <Panel headerText="Recent activity" width="100%" class="sapUiTinyMargin">
+                        <layoutData><FlexItemData growFactor="2" baseSize="20rem"/></layoutData>
+                        <List items="{home>/activity}" noDataText="No recent activity.">
+                            <StandardListItem title="{home>title}" description="{home>when}"
+                                              type="Navigation" press=".onActivityPress"/>
+                        </List>
+                    </Panel>
+                </FlexBox>
+
             </VBox>
-        </content>
-    </Page>
+            </ScrollContainer>
+        </f:content>
+    </f:DynamicPage>
 </mvc:View>

@@ -6,20 +6,17 @@
     xmlns:core="sap.ui.core"
     displayBlock="true">
 
-    <f:DynamicPage id="myRequestsPage" fitContent="true">
+    <f:DynamicPage id="myRequestsPage" fitContent="true"
+        toggleHeaderOnTitleClick="false" headerExpanded="true" preserveHeaderStateOnScroll="false"
+        class="sapUiSizeCondensed sapMDMFieldMasterPage">
         <f:title>
             <f:DynamicPageTitle>
                 <f:heading>
-                    <VBox>
-                        <Title text="My Change Requests"/>
-                        <Breadcrumbs currentLocationText="My Requests"
-                                     separatorStyle="Slash" class="sapUiTinyMarginTop">
-                            <links>
-                                <Link text="Home" press=".onNavHome"/>
-                            </links>
-                        </Breadcrumbs>
-                    </VBox>
+                    <Title text="My Change Requests" level="H2" wrapping="false"/>
                 </f:heading>
+                <f:snappedHeading>
+                    <Title text="My Change Requests" level="H3" wrapping="false"/>
+                </f:snappedHeading>
                 <f:actions>
                     <Button text="Create BP" icon="sap-icon://add" type="Emphasized"
                             press=".onCreateBP"/>
@@ -28,11 +25,9 @@
             </f:DynamicPageTitle>
         </f:title>
 
-        <f:content>
-            <VBox class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop">
-
-                <!-- Filter bar -->
-                <HBox alignItems="End" class="sapUiSmallMarginBottom" wrap="Wrap">
+        <f:header>
+            <f:DynamicPageHeader pinnable="false" backgroundDesign="Translucent">
+                <HBox alignItems="End" class="sapUiSmallMarginBeginEnd sapUiTinyMarginTopBottom" wrap="Wrap">
                     <VBox class="sapUiTinyMarginEnd">
                         <Label text="Status" labelFor="selStatus"/>
                         <Select id="selStatus" width="12rem"
@@ -63,11 +58,18 @@
                                      placeholder="Search by CR number or requester..."/>
                     </VBox>
                 </HBox>
+            </f:DynamicPageHeader>
+        </f:header>
+
+        <f:content>
+            <ScrollContainer height="100%" width="100%" vertical="true" horizontal="true" class="mdmListScroll">
 
                 <!-- Request table -->
                 <Table id="crTable"
                        noDataText="No change requests found. Click 'Create BP' to start one."
                        alternateRowColors="true"
+                       sticky="ColumnHeaders"
+                       class="sapMDMFormalTable"
                        growing="true"
                        growingThreshold="20"
                        fixedLayout="false"
@@ -118,7 +120,7 @@
                                                ${status} === 'POSTING_FAILED' ? 'Error' : 'None'}"/>
                                     <!-- Why S/4HANA rejected the posting — full text in a dialog -->
                                     <Link text="View error"
-                                          visible="{parts: ['status', 'posting_error'], formatter: '.formatPostingErrorVisible'}"
+                                          visible="{= ${path: 'status', targetType: 'any'} === 'POSTING_FAILED' &amp;&amp; !!${path: 'posting_error', targetType: 'any'} }"
                                           tooltip="{posting_error}"
                                           press=".onPostingErrorPress"/>
                                 </VBox>
@@ -130,13 +132,13 @@
                                 <Button icon="{= ${status} === 'DRAFT' ? 'sap-icon://delete' : 'sap-icon://cancel'}"
                                         type="Transparent"
                                         tooltip="{= ${status} === 'DRAFT' ? 'Delete Draft' : 'Cancel Request'}"
-                                        visible="{= ${status} === 'DRAFT' || ${status} === 'IN_APPROVAL' || ${status} === 'SENT_BACK'}"
+                                        visible="{= ['DRAFT', 'IN_APPROVAL', 'SENT_BACK'].indexOf(${path: 'status', targetType: 'any'}) >= 0 }"
                                         press=".onDeleteRow"/>
                             </cells>
                         </ColumnListItem>
                     </items>
                 </Table>
-            </VBox>
+            </ScrollContainer>
         </f:content>
     </f:DynamicPage>
 

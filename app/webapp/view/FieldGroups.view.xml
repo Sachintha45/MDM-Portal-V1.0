@@ -130,7 +130,7 @@
 
         <!-- ── Table ─────────────────────────────────────────────── -->
         <f:content>
-            <VBox>
+            <ScrollContainer height="100%" width="100%" vertical="true" horizontal="true" class="mdmListScroll">
                 <MessageStrip id="pageMessageStrip" text="" type="Information"
                               showCloseButton="true" visible="false"
                               class="sapUiSmallMarginBegin sapUiSmallMarginEnd sapUiSmallMarginTop"/>
@@ -190,7 +190,7 @@
                         <Column id="colGroupId"    width="8rem"  vAlign="Middle" importance="High">
                             <Label text="{i18n>col.groupName}" design="Bold"/>
                         </Column>
-                        <Column id="colDescription" width="12rem" vAlign="Middle" importance="High">
+                        <Column id="colDescription" width="auto" vAlign="Middle" importance="High">
                             <Label text="{i18n>col.description}" design="Bold"/>
                         </Column>
                         <Column id="colType"       width="7rem"  vAlign="Middle" hAlign="Center" importance="High">
@@ -258,7 +258,7 @@
                         </ColumnListItem>
                     </items>
                 </Table>
-            </VBox>
+            </ScrollContainer>
         </f:content>
 
     </f:DynamicPage>

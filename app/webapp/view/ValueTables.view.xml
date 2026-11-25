@@ -88,7 +88,7 @@
         </f:header>
 
         <f:content>
-            <VBox>
+            <ScrollContainer height="100%" width="100%" vertical="true" horizontal="true" class="mdmListScroll">
                 <MessageStrip id="pageMessageStrip" text="" type="Information"
                               showCloseButton="true" visible="false"
                               class="sapUiSmallMarginBegin sapUiSmallMarginEnd sapUiSmallMarginTop"/>
@@ -135,7 +135,7 @@
                     <columns>
                         <Column id="colId"          width="8rem"  vAlign="Middle" importance="High">
                             <Label text="Value Table Name" design="Bold"/></Column>
-                        <Column id="colDescription" width="9rem"  vAlign="Middle" importance="High">
+                        <Column id="colDescription" width="auto"  vAlign="Middle" importance="High">
                             <Label text="Description" design="Bold"/></Column>
                         <Column id="colSourceTable" width="6rem"  vAlign="Middle" importance="High">
                             <Label text="Backend Table" design="Bold"/></Column>
@@ -179,7 +179,7 @@
                         </ColumnListItem>
                     </items>
                 </Table>
-            </VBox>
+            </ScrollContainer>
         </f:content>
     </f:DynamicPage>
 </mvc:View>

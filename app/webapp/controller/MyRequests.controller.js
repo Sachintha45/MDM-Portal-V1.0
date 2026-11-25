@@ -66,8 +66,12 @@ sap.ui.define([
             // until a browser refresh. Force a reload from the server too.
             this._pMyUserId.then(function () {
                 this._applyFilters();
+                // First visit: applying the filter already loads the list - a
+                // refresh right behind it only throws that first response away.
+                // Later visits re-read from the server so new requests appear.
                 var oBinding = this.byId("crTable").getBinding("items");
-                if (oBinding) { oBinding.refresh(); }
+                if (oBinding && this._bVisited) { oBinding.refresh(); }
+                this._bVisited = true;
             }.bind(this));
         },
 

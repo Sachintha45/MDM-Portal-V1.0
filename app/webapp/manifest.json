@@ -36,7 +36,8 @@
             "css": [
                 {
                     "uri": "css/Sidebar.css"
-                }
+                },
+                { "uri": "css/IntellectTheme.css" }
             ]
         },
         "dependencies": {

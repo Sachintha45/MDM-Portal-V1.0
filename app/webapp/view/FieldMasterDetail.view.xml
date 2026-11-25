@@ -348,7 +348,7 @@
                                         type="Transparent" press=".onAddGridColumn"/>
                             </Toolbar>
 
-                            <Table id="gridColumnsTable"
+                            <Table id="gridColumnsTable" visible="{= !${view>/isNew} }"
                                    noDataText="No grid columns defined yet."
                                    fixedLayout="true" alternateRowColors="true"
                                    items="{
@@ -383,6 +383,40 @@
                                                        color="{path: 'active', formatter: '.formatGridColActiveColor'}"/>
                                             <Button icon="sap-icon://delete" type="Transparent"
                                                     tooltip="{i18n>btn.delete}" press=".onDeleteGridColumn"/>
+                                        </cells>
+                                    </ColumnListItem>
+                                </items>
+                            </Table>
+
+                            <!-- Same table for a field that is not saved yet: the columns are
+                                 kept locally and written when the field is saved. -->
+                            <Table id="gridColumnsPendingTable" visible="{view>/isNew}"
+                                   noDataText="No grid columns defined yet."
+                                   fixedLayout="true" alternateRowColors="true"
+                                   items="{pendCols>/items}">
+                                <columns>
+                                    <Column width="8rem"><Label text="{i18n>col.columnName}" design="Bold"/></Column>
+                                    <Column><Label text="{i18n>col.description}" design="Bold"/></Column>
+                                    <Column width="6rem" hAlign="Center"><Label text="{i18n>col.dataType}" design="Bold"/></Column>
+                                    <Column width="7rem"><Label text="{i18n>col.displayType}" design="Bold"/></Column>
+                                    <Column width="6rem" hAlign="Center"><Label text="{i18n>col.valueTable}" design="Bold"/></Column>
+                                    <Column width="6rem" hAlign="Center"><Label text="{i18n>col.validation}" design="Bold"/></Column>
+                                    <Column width="5rem" hAlign="Center"><Label text="{i18n>lbl.active}" design="Bold"/></Column>
+                                    <Column width="3rem" hAlign="End"/>
+                                </columns>
+                                <items>
+                                    <ColumnListItem type="Active" press=".onPendingColumnRowPress">
+                                        <cells>
+                                            <ObjectIdentifier text="{pendCols>column_name}"/>
+                                            <Text text="{pendCols>description}" wrapping="false" maxLines="1"/>
+                                            <Text text="{pendCols>data_type}" wrapping="false"/>
+                                            <Text text="{pendCols>display_type}" wrapping="false"/>
+                                            <Text text="{= ${pendCols>value_table_code} ? ${pendCols>value_table_code} : '—'}" wrapping="false"/>
+                                            <Text text="{= ${pendCols>validation_code} ? ${pendCols>validation_code} : '—'}" wrapping="false"/>
+                                            <core:Icon src="{= ${pendCols>active} ? 'sap-icon://accept' : 'sap-icon://decline'}"
+                                                       color="{= ${pendCols>active} ? 'Positive' : 'Negative'}"/>
+                                            <Button icon="sap-icon://delete" type="Transparent"
+                                                    tooltip="{i18n>btn.delete}" press=".onDeletePendingColumn"/>
                                         </cells>
                                     </ColumnListItem>
                                 </items>

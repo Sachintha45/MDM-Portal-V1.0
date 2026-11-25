@@ -1541,8 +1541,6 @@ sap.ui.define([
                 oTabs.addItem(new IconTabFilter({
                     key    : "__prereqs",
                     text   : "Prerequisites",
-                    icon   : "sap-icon://key",
-                    count  : String(aPrereqFields.length),
                     content: [oPrereqVBox]
                 }));
             }
@@ -1583,7 +1581,7 @@ sap.ui.define([
                         var oForm = new SimpleForm({
                             editable: true,
                             layout: "ResponsiveGridLayout",
-                            labelSpanXL: 4, labelSpanL: 4, labelSpanM: 4, labelSpanS: 12,
+                            labelSpanXL: 3, labelSpanL: 3, labelSpanM: 3, labelSpanS: 12,
                             columnsXL: 2, columnsL: 2, columnsM: 1
                         });
                         aNormalFields.forEach(function (f) {
@@ -1610,7 +1608,7 @@ sap.ui.define([
                 var oTab = new IconTabFilter({
                     key: sMain, text: oGrpMeta.description || sMain.replace(/_/g, " "),
                     tooltip: oGrpMeta.description || sMain.replace(/_/g, " "),
-                    count: String(aFields.length), icon: oGrpMeta.icon || "sap-icon://form",
+                    
                     content: [oTabContent]
                 });
                 this._aMainTabItems.push(oTab);
@@ -1634,7 +1632,7 @@ sap.ui.define([
             var oForm = new SimpleForm({
                 editable: true,
                 layout: "ResponsiveGridLayout",
-                labelSpanXL: 4, labelSpanL: 4, labelSpanM: 4, labelSpanS: 12,
+                labelSpanXL: 3, labelSpanL: 3, labelSpanM: 3, labelSpanS: 12,
                 columnsXL: 2, columnsL: 2, columnsM: 1
             });
             aPrereqFields.forEach(function (f) {
@@ -1990,7 +1988,6 @@ sap.ui.define([
             this._oAttachmentsTab = new IconTabFilter({
                 key  : "__attachments",
                 text : "Attachments",
-                icon : "sap-icon://attachment",
                 count: aExisting.length ? String(aExisting.length) : "",
                 content: [oContent]
             });
@@ -2936,7 +2933,11 @@ sap.ui.define([
                         }
                     }.bind(this));
                 }
-                oVhInput.attachValueHelpRequest(function () {
+                oVhInput.attachValueHelpRequest(function (oVhEv) {
+                    // The input in a table row is a CLONE of this template
+                    // control: the row's binding context lives on the clone
+                    // (the event source), not on oVhInput, so use the source.
+                    var oVhCell = oVhEv.getSource();
                     this._openFieldVHDialog(
                         { field_id: gc.column_name, description: gc.description },
                         sEntitySet,
@@ -2945,7 +2946,7 @@ sap.ui.define([
                             if (sExplicitRowBindPath) {
                                 oFormModel.setProperty(sExplicitRowBindPath.replace(/^form>/, "") + "/" + gc.column_name, sCode);
                             } else {
-                                var oRowCtx = oVhInput.getBindingContext("form");
+                                var oRowCtx = oVhCell.getBindingContext("form");
                                 if (oRowCtx) {
                                     oFormModel.setProperty(oRowCtx.getPath() + "/" + gc.column_name, sCode);
                                 }
@@ -3480,6 +3481,14 @@ sap.ui.define([
             }.bind(this));
 
             return aErrors;
+        },
+
+        // One-line summary shown on the collapsed header block; empty values
+        // (the "\u2014" placeholder) are left out.
+        fmtHeaderSummary: function (sCat, sRoles, sAg) {
+            return [sCat, sRoles, sAg].filter(function (v) {
+                return v && v !== "\u2014";
+            }).join("  \u00B7  ");
         },
 
         onCancel: function () {

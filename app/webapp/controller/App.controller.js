@@ -57,6 +57,11 @@ sap.ui.define([
     return Controller.extend("mdm.portal.controller.App", {
  
         onInit: function () {
+            // Intellect logo (icon only)
+            var oShellBar = this.byId("shellBar");
+            if (oShellBar) {
+                oShellBar.setHomeIcon(sap.ui.require.toUrl("mdm/portal/img/intellect_icon.png"));
+            }
             var oUiModel = new JSONModel({
                 pendingApprovals: 0,
                 shellBreadcrumb: mRouteLabels.fieldMaster,

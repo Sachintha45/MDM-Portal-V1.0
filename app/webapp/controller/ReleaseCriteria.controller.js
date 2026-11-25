@@ -119,6 +119,17 @@ sap.ui.define([
         },
 
         // ── Multi-select toolbar ─────────────────────────────────────
+        // Clear the checked rows after a bulk action and hide the bulk buttons.
+        _clearSelection: function (bRefresh) {
+            var oTable = this.byId("criteriaTable");
+            oTable.removeSelections(true);
+            this.onSelectionChange();
+            if (bRefresh) {
+                var oBinding = oTable.getBinding("items");
+                if (oBinding) { oBinding.refresh(); }
+            }
+        },
+
         onSelectionChange: function () {
             var bHas = this.byId("criteriaTable").getSelectedItems().length > 0;
             this.byId("bulkDeleteBtn").setVisible(bHas);
@@ -126,6 +137,7 @@ sap.ui.define([
         },
 
         onBulkDelete: function () {
+            var that = this;
             var aSelected = this.byId("criteriaTable").getSelectedItems();
             if (!aSelected.length) { return; }
             MessageBox.confirm("Delete " + aSelected.length + " release criteria? This cannot be undone.", {
@@ -136,7 +148,7 @@ sap.ui.define([
                             return oItem.getBindingContext().delete("$auto");
                         });
                         Promise.all(aPromises)
-                            .then(function () { MessageToast.show("Deleted successfully."); })
+                            .then(function () { MessageToast.show("Deleted successfully."); that._clearSelection(); })
                             .catch(function (e) { MessageBox.error("Delete failed: " + e.message); });
                     }
                 }.bind(this)

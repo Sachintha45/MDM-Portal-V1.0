@@ -1,0 +1,708 @@
+/* ================================================================
+   Intellect MDM Portal — dark shell (header + side navigation)
+   Loaded AFTER Sidebar.css so it overrides the earlier light styling.
+   ================================================================ */
+:root {
+    --ix-header:      #0f1b2d;
+    --ix-header-line: #1d2d45;
+    --ix-side:        #13233b;
+    --ix-text:        #c8d3e3;
+    --ix-text-dim:    #6f86a6;
+    --ix-hover:       rgba(255, 255, 255, 0.07);
+    --ix-active:      #1f6feb;
+}
+
+/* ---------- Header (ShellBar) ---------- */
+.sapTntToolPage .sapTntToolPageHeader,
+.sapTntToolPage .sapFShellBar {
+    background: var(--ix-header) !important;
+    border-bottom: 1px solid var(--ix-header-line) !important;
+    box-shadow: none !important;
+}
+.sapTntToolPage .sapFShellBar .sapMTitle,
+.sapTntToolPage .sapFShellBar .sapMTitleStyle,
+.sapTntToolPage .sapFShellBar [class*="ShellBarTitle"] {
+    color: #ffffff !important;
+    font-size: 1.0625rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0 !important;
+}
+.sapTntToolPage .sapFShellBar .sapFShellBarSubtitle,
+.sapTntToolPage .sapFShellBar [class*="SecondTitle"],
+.sapTntToolPage .sapFShellBar [class*="Subtitle"] {
+    color: #9fb2cc !important;
+    opacity: 1 !important;
+    font-size: 0.75rem !important;
+}
+.sapTntToolPage .sapFShellBar .sapMBtn,
+.sapTntToolPage .sapFShellBar .sapMBtnInner,
+.sapTntToolPage .sapFShellBar .sapMBtnIcon,
+.sapTntToolPage .sapFShellBar .sapUiIcon {
+    color: #ffffff !important;
+}
+.sapTntToolPage .sapFShellBar .sapMBtnInner {
+    background: transparent !important;
+    border-color: transparent !important;
+}
+.sapTntToolPage .sapFShellBar .sapMBtnHoverable:hover .sapMBtnInner {
+    background: var(--ix-hover) !important;
+}
+/* the Intellect logo in front of the title */
+.sapTntToolPage .sapFShellBar .sapFShellBarLogo,
+.sapTntToolPage .sapFShellBar img[class*="Logo"],
+.sapTntToolPage .sapFShellBar .sapFShellBarLogoWrapper img {
+    height: 2rem !important;
+    width: auto !important;
+    max-width: 3rem !important;
+    object-fit: contain !important;
+    margin-right: 0.5rem;
+}
+
+/* ---------- Side navigation ---------- */
+.sapTntToolPage .sapTntSideNavigation,
+.sapTntToolPage .sapTntSideNavigation .sapTntNavLI,
+.sapTntToolPage .sapTntSideNavigation .sapTntSideNavigationFixed,
+.sapTntToolPage .sapTntSideNavigation .sapTntSideNavigationFlexible,
+.sapTntToolPage .sapTntSideNavigation .sapMScrollCont,
+.sapTntToolPage .sapTntSideNavigation .sapMScrollContScroll {
+    background: var(--ix-side) !important;
+    border-color: var(--ix-header-line) !important;
+}
+.sapTntToolPage .sapTntNavLIItem {
+    margin: 2px 8px !important;
+    border-radius: 8px !important;
+    border: 0 !important;
+    background: transparent !important;
+}
+.sapTntToolPage .sapTntNavLIItem .sapTntNavLIItemText,
+.sapTntToolPage .sapTntNavLIGroupItem .sapTntNavLIItemText {
+    color: var(--ix-text) !important;
+    font-size: 0.875rem !important;
+    font-weight: 500 !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+}
+.sapTntToolPage .sapTntNavLIItem .sapUiIcon,
+.sapTntToolPage .sapTntNavLIItem [class*="Icon"] {
+    color: var(--ix-text) !important;
+}
+.sapTntToolPage .sapTntNavLIItem:hover {
+    background: var(--ix-hover) !important;
+}
+.sapTntToolPage .sapTntNavLIItem:hover .sapTntNavLIItemText {
+    color: #ffffff !important;
+}
+/* selected = solid blue pill */
+.sapTntToolPage .sapTntNavLIItemSelected,
+.sapTntToolPage .sapTntNavLIItem.sapTntNavLIItemSelected {
+    background: var(--ix-active) !important;
+    border: 0 !important;
+}
+.sapTntToolPage .sapTntNavLIItemSelected .sapTntNavLIItemText,
+.sapTntToolPage .sapTntNavLIItemSelected .sapUiIcon,
+.sapTntToolPage .sapTntNavLIItemSelected [class*="Icon"] {
+    color: #ffffff !important;
+    font-weight: 600 !important;
+}
+
+/* section captions: FIELDS / BUSINESS PARTNER / BP MAINTENANCE / GOVERNANCE */
+.sapTntToolPage .mdmNavSection {
+    pointer-events: none !important;
+    opacity: 1 !important;
+    background: transparent !important;
+    margin-top: 14px !important;
+    margin-bottom: 0 !important;
+    min-height: 1.5rem !important;
+    height: auto !important;
+}
+.sapTntToolPage .mdmNavSection *,
+.sapTntToolPage .mdmNavSection .sapTntNavLIItemText {
+    opacity: 1 !important;
+    color: var(--ix-text-dim) !important;
+    font-size: 0.6875rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.09em !important;
+    text-transform: uppercase !important;
+}
+.sapTntToolPage .mdmNavSection:hover { background: transparent !important; }
+
+/* ---------- Side navigation: readable text, no scrollbar ---------- */
+/* UI5 class names differ between versions, so match by prefix */
+.sapTntToolPage .sapTntSideNavigation [class*="sapTntNL"],
+.sapTntToolPage .sapTntSideNavigation .sapMText,
+.sapTntToolPage .sapTntSideNavigation .sapUiIcon {
+    color: var(--ix-text) !important;
+}
+.sapTntToolPage .sapTntSideNavigation [class*="sapTntNL"]:hover,
+.sapTntToolPage .sapTntSideNavigation [class*="sapTntNL"]:hover .sapMText,
+.sapTntToolPage .sapTntSideNavigation [class*="sapTntNL"]:hover .sapUiIcon {
+    color: #ffffff !important;
+}
+.sapTntToolPage .sapTntSideNavigation [class*="sapTntNL"] {
+    background-color: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+}
+.sapTntToolPage .sapTntSideNavigation [class*="sapTntNL"]:hover {
+    background-color: var(--ix-hover) !important;
+}
+/* selected item = blue pill with white text */
+.sapTntToolPage .sapTntSideNavigation [class*="sapTntNL"][class*="Selected"],
+.sapTntToolPage .sapTntSideNavigation [aria-selected="true"],
+.sapTntToolPage .sapTntSideNavigation [aria-selected="true"] [class*="sapTntNL"] {
+    background-color: var(--ix-active) !important;
+    border-radius: 8px !important;
+}
+.sapTntToolPage .sapTntSideNavigation [aria-selected="true"] .sapMText,
+.sapTntToolPage .sapTntSideNavigation [aria-selected="true"] .sapUiIcon,
+.sapTntToolPage .sapTntSideNavigation [class*="Selected"] .sapMText,
+.sapTntToolPage .sapTntSideNavigation [class*="Selected"] .sapUiIcon {
+    color: #ffffff !important;
+    font-weight: 600 !important;
+}
+/* section captions stay small and dim (must come after the rules above) */
+.sapTntToolPage .sapTntSideNavigation .mdmNavSection,
+.sapTntToolPage .sapTntSideNavigation .mdmNavSection [class*="sapTntNL"],
+.sapTntToolPage .sapTntSideNavigation .mdmNavSection .sapMText,
+.sapTntToolPage .sapTntSideNavigation .mdmNavSection .sapUiIcon {
+    color: var(--ix-text-dim) !important;
+    background-color: transparent !important;
+    opacity: 1 !important;
+}
+/* hide scrollbars in the menu (it still scrolls with the wheel / touch) */
+.sapTntToolPage .sapTntSideNavigation,
+.sapTntToolPage .sapTntSideNavigation * {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+}
+.sapTntToolPage .sapTntSideNavigation::-webkit-scrollbar,
+.sapTntToolPage .sapTntSideNavigation *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
+/* ---------- Home KPI tiles: white tile, themed border ---------- */
+.sapMGT.mdmKpiTile {
+    border: 1px solid #d5dde8 !important;
+    border-top: 4px solid var(--ix-active) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 2px 8px rgba(15, 27, 45, 0.12) !important;
+}
+.sapMGT.mdmKpiTile:hover,
+.sapMGT.mdmKpiTile:focus {
+    border-color: var(--ix-active) !important;
+    box-shadow: 0 4px 12px rgba(31, 111, 235, 0.25) !important;
+}
+
+/* ================================================================
+   List screens (Field Master, Validation Rules, Value Tables, …):
+   same type scale and tighter spacing as Home / the new shell.
+   All list screens carry .sapMDMFieldMasterPage.
+   ================================================================ */
+.sapMDMFieldMasterPage {
+    --ix-ink:   #1d2d3e;
+    --ix-muted: #5b6b7b;
+}
+/* page title = same as the Home greeting */
+.sapMDMFieldMasterPage .sapFDynamicPageTitle .sapMTitle {
+    font-size: 1.25rem !important;
+    font-weight: 700 !important;
+    color: var(--ix-ink) !important;
+}
+/* filter area: less empty space */
+/* header/title paddings are left at their defaults: overriding them leaves a
+   see-through strip when the header collapses on scroll */
+.sapMDMFieldMasterPage .sapFDynamicPageHeader,
+.sapMDMFieldMasterPage .sapFDynamicPageTitle {
+    background-color: #ffffff !important;
+}
+.sapMDMFieldMasterPage .sapFDynamicPageHeader .sapUiRespGrid.sapUiSmallMarginTopBottom {
+    margin-top: 0.25rem !important;
+    margin-bottom: 0 !important;
+}
+.sapMDMFieldMasterPage .sapFDynamicPageHeader .sapMTB.sapUiSmallMarginTop {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    min-height: 2.25rem !important;
+}
+/* labels: small, muted, semibold */
+.sapMDMFieldMasterPage .sapMLabel,
+.sapMDMFieldMasterPage .sapMLabel bdi {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    color: var(--ix-muted) !important;
+    margin-bottom: 0.125rem !important;
+}
+/* inputs / selects: compact, 14px text */
+.sapMDMFieldMasterPage .sapMInputBase,
+.sapMDMFieldMasterPage .sapMSlt {
+    height: 2rem !important;
+    min-height: 2rem !important;
+    font-size: 0.875rem !important;
+}
+.sapMDMFieldMasterPage .sapMInputBaseInner,
+.sapMDMFieldMasterPage .sapMSltLabel {
+    font-size: 0.875rem !important;
+    color: var(--ix-ink) !important;
+}
+.sapMDMFieldMasterPage .sapMBtn .sapMBtnInner,
+.sapMDMFieldMasterPage .sapMBtn .sapMBtnContent {
+    font-size: 0.875rem !important;
+}
+/* table title ("Fields (112)") and header / cell text */
+.sapMDMFieldMasterPage .sapMTB .sapMTitle {
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+    color: var(--ix-ink) !important;
+}
+.sapMDMFormalTable th .sapMText,
+.sapMDMFormalTable th .sapMLabel,
+.sapMDMFormalTable .sapMListTblHeaderCell .sapMText {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    color: var(--ix-muted) !important;
+}
+.sapMDMFormalTable td .sapMText,
+.sapMDMFormalTable td .sapMLnk,
+.sapMDMFormalTable td .sapMObjectStatusText,
+.sapMDMFormalTable .sapMListTblCell .sapMText,
+.sapMDMFormalTable .sapMListTblCell .sapMLnk {
+    font-size: 0.8125rem !important;
+}
+
+/* ================================================================
+   List screens, round 2 — one compact filter row everywhere:
+   filters on the left, Clear / Go on the same line at the right,
+   and a small gap before the table.
+   (FlexBox wraps each child in .sapMFlexItem, so match through it.)
+   ================================================================ */
+.sapMDMFieldMasterPage .sapFDynamicPageHeader .sapMVBox:has(> .sapMFlexItem > .sapUiRespGrid) {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-end !important;
+    flex-wrap: nowrap !important;
+}
+.sapMDMFieldMasterPage .sapFDynamicPageHeader .sapMFlexItem:has(> .sapUiRespGrid) {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    width: auto !important;
+}
+.sapMDMFieldMasterPage .sapFDynamicPageHeader .sapMFlexItem:has(> .sapMTB) {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    align-self: flex-end !important;
+}
+.sapMDMFieldMasterPage .sapFDynamicPageHeader .sapUiRespGrid {
+    margin-bottom: 0.5rem !important;
+}
+.sapMDMFieldMasterPage .sapFDynamicPageHeader .sapMVBox > .sapMFlexItem > .sapMTB {
+    width: auto !important;
+    margin: 0 1rem 0.5rem 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+}
+/* smaller gap between filter box and table, table flush with the page edges */
+/* no left/right/top padding around the table: every DynamicPage content wrapper */
+.sapMDMFieldMasterPage [class*="sapFDynamicPageContent"] {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    padding-bottom: 0 !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+}
+.sapMDMFieldMasterPage .mdmListScroll,
+.sapMDMFieldMasterPage .mdmListScroll > .sapMScrollContScroll,
+.sapMDMFieldMasterPage .mdmListScroll .sapMList {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+.sapMDMFieldMasterPage .mdmListScroll { background: transparent !important; }
+.sapMDMFieldMasterPage .sapFDynamicPageHeader {
+    box-shadow: none !important;
+}
+
+/* ================================================================
+   Detail pages (Field Master, Validation Rule, Value Table, Field
+   Group, BP Category / Role, Account Group, Release …):
+   same compact spacing and type scale as the list screens.
+   They all use a sap.m.Page + IconTabBar, so no view changes needed.
+   ================================================================ */
+/* tab content area: smaller side / top padding */
+.sapTntToolPage .sapMITB .sapMITBContent,
+.sapTntToolPage .sapMITB.sapUiResponsiveContentPadding > .sapMITBContainerContent,
+.sapTntToolPage .sapMITB.sapUiResponsiveContentPadding .sapMITBContent {
+    padding: 0.25rem 0.5rem 0.75rem 0.5rem !important;
+}
+.sapTntToolPage .sapMITBContent .sapMVBox.sapUiMediumMarginBeginEnd,
+.sapTntToolPage .sapMITBContent .sapMVBox.sapUiSmallMarginBeginEnd {
+    margin-left: 0.5rem !important;
+    margin-right: 0.5rem !important;
+}
+/* section titles */
+.sapTntToolPage .sapMITBContent .sapMTitle {
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+    color: #1d2d3e !important;
+}
+.sapTntToolPage .sapMITBContent .sapMTitle.sapUiSmallMarginTop  { margin-top: 0.5rem !important; }
+.sapTntToolPage .sapMITBContent .sapMTitle.sapUiMediumMarginTop { margin-top: 0.75rem !important; }
+.sapTntToolPage .sapMITBContent .sapMTitle.sapUiSmallMarginBottom { margin-bottom: 0.375rem !important; }
+.sapTntToolPage .sapMITBContent .sapMTitle.sapUiMediumMarginBottom { margin-bottom: 0.5rem !important; }
+/* grids and forms: no extra outer margins */
+.sapTntToolPage .sapMITBContent .sapUiRespGrid {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+.sapTntToolPage .sapMITBContent .sapUiRespGridVSpace0 > div,
+.sapTntToolPage .sapMITBContent .sapUiRespGridVSpace1 > div,
+.sapTntToolPage .sapMITBContent .sapUiRespGridVSpace2 > div {
+    margin-bottom: 0.25rem !important;
+}
+.sapTntToolPage .sapMITBContent .sapUiForm,
+.sapTntToolPage .sapMITBContent .sapUiFormResGrid {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+/* labels: small muted semibold, inputs compact with 14px text */
+.sapTntToolPage .sapMITBContent .sapMLabel,
+.sapTntToolPage .sapMITBContent .sapMLabel bdi {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    color: #5b6b7b !important;
+    margin-bottom: 0.125rem !important;
+}
+.sapTntToolPage .sapMITBContent .sapMInputBase,
+.sapTntToolPage .sapMITBContent .sapMSlt {
+    height: 2rem !important;
+    min-height: 2rem !important;
+    font-size: 0.875rem !important;
+}
+.sapTntToolPage .sapMITBContent .sapMTextArea,
+.sapTntToolPage .sapMITBContent .sapMTextAreaInner {
+    font-size: 0.875rem !important;
+}
+.sapTntToolPage .sapMITBContent .sapMInputBaseInner,
+.sapTntToolPage .sapMITBContent .sapMSltLabel {
+    font-size: 0.875rem !important;
+}
+/* tab strip: smaller icons, less height */
+.sapTntToolPage .sapMITH .sapMITBFilterIcon {
+    width: 2.25rem !important;
+    height: 2.25rem !important;
+    line-height: 2.25rem !important;
+    min-width: 2.25rem !important;
+}
+.sapTntToolPage .sapMITH .sapMITBItem {
+    padding-top: 0.25rem !important;
+    padding-bottom: 0 !important;
+}
+.sapTntToolPage .sapMITB > .sapMITH,
+.sapTntToolPage .sapMITB > .sapMITBHead {
+    min-height: 0 !important;
+}
+
+/* ---- Detail pages, round 2: smaller headings, aligned with the fields ---- */
+.sapTntToolPage .sapMITBContent .sapMTitle {
+    font-size: 0.875rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.01em;
+}
+/* page header (back button + "FIELD — Description") */
+.sapTntToolPage .sapMPage .sapMBar .sapMTitle,
+.sapTntToolPage .sapMPage .sapMBar .sapMLabel {
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+}
+/* tab headings */
+.sapTntToolPage .sapMITH .sapMITBText,
+.sapTntToolPage .sapMITH .sapMITBTextUpperCase {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+}
+.sapTntToolPage .sapMITH .sapMITBFilterIcon {
+    width: 2rem !important;
+    height: 2rem !important;
+    line-height: 2rem !important;
+    min-width: 2rem !important;
+}
+.sapTntToolPage .sapMITH .sapMITBFilterIcon .sapUiIcon,
+.sapTntToolPage .sapMITH .sapMITBFilterIcon:before {
+    font-size: 0.875rem !important;
+}
+/* line the section titles up with the first label/field: the field grids
+   carry their own side padding, so take it off */
+.sapTntToolPage .sapMITBContent .sapUiRespGrid {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+
+/* ---- Detail pages: buttons in the same compact size as the list screens ---- */
+.sapTntToolPage .sapMITBContent .sapMBtn,
+.sapTntToolPage .sapMPage .sapMPageFooter .sapMBtn,
+.sapTntToolPage .sapMPage .sapMBar .sapMBtn {
+    height: 2rem !important;
+    min-height: 2rem !important;
+    min-width: 2rem !important;
+}
+.sapTntToolPage .sapMITBContent .sapMBtn .sapMBtnInner,
+.sapTntToolPage .sapMPage .sapMPageFooter .sapMBtn .sapMBtnInner,
+.sapTntToolPage .sapMPage .sapMBar .sapMBtn .sapMBtnInner {
+    height: 2rem !important;
+    min-height: 2rem !important;
+    line-height: 1.875rem !important;
+    font-size: 0.875rem !important;
+    padding-left: 0.625rem !important;
+    padding-right: 0.625rem !important;
+}
+.sapTntToolPage .sapMITBContent .sapMBtn .sapMBtnIcon,
+.sapTntToolPage .sapMITBContent .sapMBtn .sapUiIcon,
+.sapTntToolPage .sapMPage .sapMPageFooter .sapMBtn .sapUiIcon {
+    font-size: 0.875rem !important;
+    line-height: 1.875rem !important;
+}
+.sapTntToolPage .sapMITBContent .sapMBtn .sapMBtnContent,
+.sapTntToolPage .sapMPage .sapMPageFooter .sapMBtn .sapMBtnContent {
+    font-size: 0.875rem !important;
+    padding: 0 !important;
+}
+
+/* ---- Detail pages: panel / form headings in the same size as section titles ---- */
+.sapTntToolPage .sapMITBContent .sapMPanelHdr,
+.sapTntToolPage .sapMITBContent .sapMPanelHdr *,
+.sapTntToolPage .sapMITBContent .sapMPanelWrappingDivTb .sapMTitle,
+.sapTntToolPage .sapMITBContent .sapMPanelHeadingDiv .sapMTitle,
+.sapTntToolPage .sapMITBContent .sapMPanelWrappingDiv,
+.sapTntToolPage .sapMITBContent .sapUiFormTitle,
+.sapTntToolPage .sapMITBContent .sapUiFormTitle *,
+.sapTntToolPage .sapMITBContent .sapMTitleStyleH1,
+.sapTntToolPage .sapMITBContent .sapMTitleStyleH2,
+.sapTntToolPage .sapMITBContent .sapMTitleStyleH3,
+.sapTntToolPage .sapMITBContent .sapMTitleStyleH4,
+.sapTntToolPage .sapMITBContent .sapMTitleStyleH5,
+.sapTntToolPage .sapMITBContent .sapMTitleStyleH6 {
+    font-size: 0.875rem !important;
+    font-weight: 700 !important;
+    color: #1d2d3e !important;
+}
+.sapTntToolPage .sapMITBContent .sapMPanelWrappingDivTb,
+.sapTntToolPage .sapMITBContent .sapMPanelHeaderToolbar,
+.sapTntToolPage .sapMITBContent .sapMPanelHdr {
+    min-height: 2.25rem !important;
+    height: auto !important;
+}
+/* panels: same left edge as the section titles above them */
+.sapTntToolPage .sapMITBContent .sapMPanel {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+}
+
+/* ---- "No data" text in every table / list: small and muted ---- */
+.sapTntToolPage .sapMListNoData,
+.sapTntToolPage .sapMListNoData *,
+.sapTntToolPage .sapMListNoDataText,
+.sapTntToolPage .sapMListTblNoData,
+.sapTntToolPage .sapMListTblNoData * {
+    font-size: 0.8125rem !important;
+    font-weight: 400 !important;
+    color: #5b6b7b !important;
+}
+.sapTntToolPage .sapMListNoData,
+.sapTntToolPage .sapMListTblNoData {
+    height: 3rem !important;
+    min-height: 3rem !important;
+}
+
+/* ================================================================
+   Other page-based screens (Create BP, My Request detail, Approval
+   detail …): same compact type scale as the detail pages.
+   ================================================================ */
+.sapTntToolPage .sapMPageEnableScrolling .sapMVBox.sapUiMediumMarginBeginEnd,
+.sapTntToolPage .sapMPageEnableScrolling .sapMHBox.sapUiMediumMarginBeginEnd {
+    margin-left: 0.75rem !important;
+    margin-right: 0.75rem !important;
+}
+.sapTntToolPage .sapMPageEnableScrolling .sapMLabel,
+.sapTntToolPage .sapMPageEnableScrolling .sapMLabel bdi {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    color: #5b6b7b !important;
+    margin-bottom: 0.125rem !important;
+}
+.sapTntToolPage .sapMPageEnableScrolling .sapMInputBase,
+.sapTntToolPage .sapMPageEnableScrolling .sapMSlt,
+.sapTntToolPage .sapMPageEnableScrolling .sapMComboBox {
+    height: 2rem !important;
+    min-height: 2rem !important;
+    font-size: 0.875rem !important;
+}
+.sapTntToolPage .sapMPageEnableScrolling .sapMInputBaseInner,
+.sapTntToolPage .sapMPageEnableScrolling .sapMSltLabel,
+.sapTntToolPage .sapMPageEnableScrolling .sapMTextAreaInner {
+    font-size: 0.875rem !important;
+}
+.sapTntToolPage .sapMPageEnableScrolling .sapMTitle,
+.sapTntToolPage .sapMPageEnableScrolling .sapMPanelHdr {
+    font-size: 0.875rem !important;
+    font-weight: 700 !important;
+    color: #1d2d3e !important;
+}
+.sapTntToolPage .sapMPageEnableScrolling .sapMText,
+.sapTntToolPage .sapMPageEnableScrolling .mdmSubtitleText {
+    font-size: 0.8125rem !important;
+}
+.sapTntToolPage .sapMPageEnableScrolling .sapMBtn,
+.sapTntToolPage .sapMPageEnableScrolling .sapMBtn .sapMBtnInner {
+    height: 2rem !important;
+    min-height: 2rem !important;
+    font-size: 0.875rem !important;
+}
+.sapTntToolPage .sapMPageEnableScrolling .sapMLnk,
+.sapTntToolPage .sapMPageEnableScrolling .sapMObjectStatusText {
+    font-size: 0.8125rem !important;
+}
+
+/* gap between the filter box / title and the content: small (UI5 default is 2rem) */
+.sapMDMFieldMasterPage .sapFDynamicPageContent,
+.sapMDMFieldMasterPage .sapFDynamicPageContentFitContainer {
+    padding-top: 0.25rem !important;
+}
+/* "no data" cell in tables */
+.sapTntToolPage .sapMListTblCellNoData,
+.sapTntToolPage .sapMListTblCellNoData * {
+    font-size: 0.8125rem !important;
+    color: #5b6b7b !important;
+}
+
+/* ================================================================
+   Tables: compact, professional rows (was ~56px per row)
+   The tall row came from the 44px selection checkbox and the
+   column-header padding, not from the row height setting.
+   ================================================================ */
+:root, .sapUiBody, .sapTntToolPage {
+    --mdm-tbl-row-h: 40px;
+}
+.sapMDMFormalTable .sapMCb.sapMLIBSelectM,
+.sapMDMFormalTable .sapMListTblSelCol .sapMCb {
+    height: 2rem !important;
+    min-height: 2rem !important;
+    line-height: 2rem !important;
+    width: 2rem !important;
+    min-width: 2rem !important;
+}
+.sapMDMFormalTable .sapMListTblSelCol {
+    width: 2.5rem !important;
+    padding: 0 !important;
+}
+.sapMDMFormalTable .sapMColumnHeader {
+    min-height: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    line-height: 1.5 !important;
+}
+.sapMDMFormalTable .sapMListTblHeaderCell {
+    height: 2.5rem !important;
+    min-height: 2.5rem !important;
+    max-height: none !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    background-color: #f4f6f9 !important;
+    border-bottom: 1px solid #d5dde8 !important;
+}
+.sapMDMFormalTable .sapMListTblSelCol.sapMTableTH {
+    background-color: #f4f6f9 !important;
+    border-bottom: 1px solid #d5dde8 !important;
+}
+/* data rows */
+.sapMDMFormalTable tr.sapMListTblRow:not(.sapMListTblHeader) {
+    height: 2.5rem !important;
+    min-height: 2.5rem !important;
+}
+.sapMDMFormalTable tr.sapMListTblRow:not(.sapMListTblHeader) > td {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    border-bottom: 1px solid #e8ecf2 !important;
+}
+.sapMDMFormalTable tr.sapMListTblRow:not(.sapMListTblHeader):hover > td {
+    background-color: #eef4ff !important;
+}
+/* row-action buttons ("...") and checkbox cell centred in the compact row */
+.sapMDMFormalTable td .sapMBtn,
+.sapMDMFormalTable td .sapMBtn .sapMBtnInner {
+    height: 2rem !important;
+    min-height: 2rem !important;
+    line-height: 2rem !important;
+}
+.sapMDMFormalTable td .sapMBtn { width: 2rem !important; min-width: 2rem !important; margin: 0 !important; }
+.sapMDMFormalTable td .sapMBtn .sapUiIcon { line-height: 2rem !important; font-size: 1rem !important; }
+.sapMDMFormalTable td.sapMListTblSelCol,
+.sapMDMFormalTable th.sapMListTblSelCol { vertical-align: middle !important; }
+.sapMDMFormalTable .sapMListTblSelCol .sapMCb { margin: 0 auto !important; }
+.sapMDMFormalTable .sapMListTblSelCol .sapMCb {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 1 !important;
+}
+.sapMDMFormalTable .sapMListTblSelCol .sapMCb .sapMCbBg { margin: 0 !important; }
+.sapMDMFormalTable td .sapMBtn .sapMBtnInner {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+}
+.sapMDMFormalTable td .sapMBtn .sapUiIcon { line-height: 1 !important; }
+.sapMDMFormalTable .sapMListTblSelCol .sapMCb .sapMCbBg {
+    position: absolute !important;
+    top: 5px !important;
+    left: 10px !important;
+}
+
+/* tables whose cells may wrap onto two lines (e.g. long role names) */
+.sapMDMFormalTable.mdmAutoRows tr.sapMListTblRow:not(.sapMListTblHeader),
+.sapMDMFormalTable.mdmAutoRows tr.sapMLIB:not(.sapMListTblHeader) {
+    height: auto !important;
+    min-height: 2.5rem !important;
+    max-height: none !important;
+}
+.sapMDMFormalTable.mdmAutoRows td.sapMListTblCell {
+    max-height: none !important;
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+}
+
+/* ================================================================
+   Create BP: the tab bar is width:100% in UI5; with the page margins
+   (sapUiMediumMarginBeginEnd) it overflowed the page by 2rem, so the
+   form's right edge (inputs, panel border) was cut off by the scrollbar.
+   ================================================================ */
+.sapTntToolPage .sapMITB.sapUiMediumMarginBeginEnd,
+.sapTntToolPage .sapMITB.sapUiSmallMarginBeginEnd {
+    width: auto !important;
+}
+/* Create BP form: labels left-aligned next to the field (was right-aligned
+   against it, leaving a large empty block on the left) */
+html body .sapTntToolPage .sapMITBContent .sapUiFormResGrid .sapUiRespGridSpanL4 > label.sapMLabel.sapUiSelectable,
+html body .sapTntToolPage .sapMITBContent .sapUiFormResGrid label.sapMLabel.sapUiSelectable,
+html body .sapTntToolPage .sapMITBContent .sapUiFormResGrid label.sapMLabel.sapUiSelectable bdi {
+    text-align: left !important;
+    text-align: start !important;
+}
+.sapTntToolPage .sapMITBContent .sapUiForm .sapMLabel {
+    display: block !important;
+    padding-left: 1rem;
+}
+
+/* Create BP: collapsible header block. The one-line summary (category · roles ·
+   account group) only shows while the block is collapsed. */
+.sapTntToolPage .mdmHeaderPanel .mdmHeaderSummary {
+    font-weight: 400 !important;
+    color: #5b6b7b !important;
+    margin-left: 0.75rem;
+}
+.sapTntToolPage .mdmHeaderPanel .sapMPanelWrappingDivExpanded .mdmHeaderSummary {
+    display: none !important;
+}

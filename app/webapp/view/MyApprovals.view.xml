@@ -6,85 +6,85 @@
     xmlns:core="sap.ui.core"
     displayBlock="true">
 
-    <f:DynamicPage id="myApprovalsPage" fitContent="true">
+    <f:DynamicPage id="myApprovalsPage" fitContent="true"
+        toggleHeaderOnTitleClick="false" headerExpanded="true" preserveHeaderStateOnScroll="false"
+        class="sapUiSizeCondensed sapMDMFieldMasterPage">
         <f:title>
             <f:DynamicPageTitle>
                 <f:heading>
-                    <VBox>
-                        <Title text="My Approvals"/>
-                        <Breadcrumbs currentLocationText="My Approvals"
-                                     separatorStyle="Slash" class="sapUiTinyMarginTop">
-                            <links>
-                                <Link text="Home" press=".onNavHome"/>
-                            </links>
-                        </Breadcrumbs>
-                        
-                    </VBox>
+                    <Title text="My Approvals" level="H2" wrapping="false"/>
                 </f:heading>
+                <f:snappedHeading>
+                    <Title text="My Approvals" level="H3" wrapping="false"/>
+                </f:snappedHeading>
                 <f:actions>
                     <Button icon="sap-icon://refresh" tooltip="Refresh" press=".onRefresh"/>
                 </f:actions>
             </f:DynamicPageTitle>
         </f:title>
 
+        <f:header>
+            <f:DynamicPageHeader pinnable="false" backgroundDesign="Translucent">
+                <VBox class="sapUiSmallMarginBeginEnd sapUiTinyMarginTopBottom">
+    
+                    <!-- Stat filter chips: Pending / Overdue / Due Today / Completed (30d) -->
+                    <SegmentedButton id="statFilterBar" class="sapUiTinyMarginBottom"
+                                      selectedKey="pending" select=".onStatFilterChange">
+                        <items>
+                            <SegmentedButtonItem key="pending"   text="{= 'Pending (' + (${view>/statPending} || 0) + ')'}"/>
+                            <SegmentedButtonItem key="overdue"   text="{= 'Overdue (' + (${view>/statOverdue} || 0) + ')'}"/>
+                            <SegmentedButtonItem key="dueToday"  text="{= 'Due Today (' + (${view>/statDueToday} || 0) + ')'}"/>
+                            <SegmentedButtonItem key="completed" text="{= 'Completed 30d (' + (${view>/statCompleted} || 0) + ')'}"/>
+                        </items>
+                    </SegmentedButton>
+    
+                    <!-- Filter bar -->
+                    <HBox alignItems="End" wrap="Wrap">
+                        <VBox class="sapUiTinyMarginEnd">
+                            <Label text="Request Type" labelFor="selApType"/>
+                            <Select id="selApType" width="12rem"
+                                    forceSelection="false" change=".onFilterChange">
+                                <core:Item key="" text="All Request Types"/>
+                                <core:Item key="CREATE" text="Create"/>
+                                <core:Item key="EXTEND" text="Extend"/>
+                                <core:Item key="CHANGE" text="Change"/>
+                            </Select>
+                        </VBox>
+                        <VBox>
+                            <Label text="Search"/>
+                            <SearchField id="apSearch" width="20rem" search=".onSearch"
+                                         placeholder="Search by request ID, subject, or requester..."/>
+                        </VBox>
+                    </HBox>
+                </VBox>
+            </f:DynamicPageHeader>
+        </f:header>
+
         <f:content>
-            <VBox class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop">
-
-                <!-- Stat filter chips: Pending / Overdue / Due Today / Completed (30d) -->
-                <SegmentedButton id="statFilterBar" class="sapUiSmallMarginBottom"
-                                  selectedKey="pending" select=".onStatFilterChange">
-                    <items>
-                        <SegmentedButtonItem key="pending"   text="{= 'Pending (' + (${view>/statPending} || 0) + ')'}"/>
-                        <SegmentedButtonItem key="overdue"   text="{= 'Overdue (' + (${view>/statOverdue} || 0) + ')'}"/>
-                        <SegmentedButtonItem key="dueToday"  text="{= 'Due Today (' + (${view>/statDueToday} || 0) + ')'}"/>
-                        <SegmentedButtonItem key="completed" text="{= 'Completed 30d (' + (${view>/statCompleted} || 0) + ')'}"/>
-                    </items>
-                </SegmentedButton>
-
-                <!-- Filter bar -->
-                <HBox alignItems="End" class="sapUiSmallMarginBottom" wrap="Wrap">
-                    <VBox class="sapUiTinyMarginEnd">
-                        <Label text="Request Type" labelFor="selApType"/>
-                        <Select id="selApType" width="12rem"
-                                forceSelection="false" change=".onFilterChange">
-                            <core:Item key="" text="All Request Types"/>
-                            <core:Item key="CREATE" text="Create"/>
-                            <core:Item key="EXTEND" text="Extend"/>
-                            <core:Item key="CHANGE" text="Change"/>
-                        </Select>
-                    </VBox>
-                    <VBox>
-                        <Label text="Search"/>
-                        <SearchField id="apSearch" width="20rem" search=".onSearch"
-                                     placeholder="Search by request ID, subject, or requester..."/>
-                    </VBox>
-                </HBox>
+            <ScrollContainer height="100%" width="100%" vertical="true" horizontal="true" class="mdmListScroll">
+            <VBox>
 
                 <!-- Approvals table -->
                 <Table id="apTable"
                        noDataText="{view>/noDataText}"
                        alternateRowColors="true"
+                       sticky="ColumnHeaders"
+                       class="sapMDMFormalTable mdmAutoRows"
                        growing="true"
                        growingThreshold="20"
-                       fixedLayout="false"
+                       fixedLayout="true"
                        busy="{view>/busy}"
                        visible="{= !${view>/showCompleted} }"
                        items="{view>/rows}">
                     <columns>
-                        <Column width="10rem"><Label text="Request ID" design="Bold"/></Column>
-                        <Column width="6rem" ><Label text="Type"       design="Bold"/></Column>
-                        <Column><Label text="Subject"    design="Bold"/></Column>
-                        <Column width="8rem" ><Label text="Strategy"   design="Bold"/></Column>
-                        <Column width="8rem" ><Label text="My Code"    design="Bold"/></Column>
-                        <Column width="9rem"
-                                minScreenWidth="Tablet"
-                                demandPopin="true"><Label text="Submitted" design="Bold"/></Column>
-                        <Column width="9rem"
-                                minScreenWidth="Tablet"
-                                demandPopin="true"><Label text="Due"       design="Bold"/></Column>
-                        <Column width="9rem"
-                                minScreenWidth="Desktop"
-                                demandPopin="true"><Label text="Submitted By" design="Bold"/></Column>
+                        <Column width="10.5%"><Label text="Request ID" design="Bold"/></Column>
+                        <Column width="6%"><Label text="Type" design="Bold"/></Column>
+                        <Column width="12%"><Label text="Subject"    design="Bold"/></Column>
+                        <Column width="7%"><Label text="Strategy" design="Bold"/></Column>
+                        <Column width="14%"><Label text="My Code" design="Bold"/></Column>
+                        <Column width="17%"><Label text="Submitted" design="Bold"/></Column>
+                        <Column width="9.5%"><Label text="Due"       design="Bold"/></Column>
+                        <Column width="24%"><Label text="Submitted By" design="Bold"/></Column>
                     </columns>
                     <items>
                         <ColumnListItem type="Active" press=".onRowPress">
@@ -96,12 +96,12 @@
                                            ${view>request_type} === 'EXTEND' ? 'Warning' : 'None'}"/>
                                 <Text text="{view>subject}" wrapping="false"/>
                                 <Text text="{view>strategy_id}" wrapping="false"/>
-                                <ObjectStatus text="{view>release_code_id}" state="Information"/>
+                                <ObjectStatus text="{view>release_code_id}" tooltip="{view>release_code_id}" state="Information"/>
                                 <Text text="{path: 'view>submitted_at', formatter: '.formatDateTime'}" wrapping="false"/>
                                 <ObjectStatus
                                     text="{path: 'view>due_at', formatter: '.formatDateTime'}"
                                     state="{= ${view>isOverdue} ? 'Error' : ${view>isDueToday} ? 'Warning' : 'None'}"/>
-                                <Text text="{view>requester}" wrapping="false"/>
+                                <Text text="{view>requester}" tooltip="{view>requester}" wrapping="false"/>
                             </cells>
                         </ColumnListItem>
                     </items>
@@ -112,25 +112,23 @@
                 <Table id="apCompletedTable"
                        noDataText="{view>/noDataText}"
                        alternateRowColors="true"
+                       sticky="ColumnHeaders"
+                       class="sapMDMFormalTable mdmAutoRows"
                        growing="true"
                        growingThreshold="20"
-                       fixedLayout="false"
+                       fixedLayout="true"
                        busy="{view>/busy}"
                        visible="{view>/showCompleted}"
                        items="{view>/rows}">
                     <columns>
-                        <Column width="10rem"><Label text="Request ID" design="Bold"/></Column>
-                        <Column width="6rem" ><Label text="Type"       design="Bold"/></Column>
-                        <Column><Label text="Subject" design="Bold"/></Column>
-                        <Column width="8rem" ><Label text="My Code"    design="Bold"/></Column>
-                        <Column width="8rem" ><Label text="My Decision" design="Bold"/></Column>
-                        <Column width="9rem"
-                                minScreenWidth="Tablet"
-                                demandPopin="true"><Label text="Decided On" design="Bold"/></Column>
-                        <Column width="11rem"><Label text="Request Status" design="Bold"/></Column>
-                        <Column width="9rem"
-                                minScreenWidth="Desktop"
-                                demandPopin="true"><Label text="Submitted By" design="Bold"/></Column>
+                        <Column width="10%"><Label text="Request ID" design="Bold"/></Column>
+                        <Column width="6%"><Label text="Type" design="Bold"/></Column>
+                        <Column width="12%"><Label text="Subject" design="Bold"/></Column>
+                        <Column width="13%"><Label text="My Code" design="Bold"/></Column>
+                        <Column width="10%"><Label text="My Decision" design="Bold"/></Column>
+                        <Column width="16%"><Label text="Decided On" design="Bold"/></Column>
+                        <Column width="11%"><Label text="Request Status" design="Bold"/></Column>
+                        <Column width="22%"><Label text="Submitted By" design="Bold"/></Column>
                     </columns>
                     <items>
                         <ColumnListItem type="Active" press=".onRowPress">
@@ -141,7 +139,7 @@
                                     state="{= ${view>request_type} === 'CREATE' ? 'Success' :
                                            ${view>request_type} === 'EXTEND' ? 'Warning' : 'None'}"/>
                                 <Text text="{view>subject}" wrapping="false"/>
-                                <ObjectStatus text="{view>release_code_id}" state="Information"/>
+                                <ObjectStatus text="{view>release_code_id}" tooltip="{view>release_code_id}" state="Information"/>
                                 <ObjectStatus text="{view>decisionText}" state="{view>decisionState}"
                                               tooltip="{view>comment}"/>
                                 <Text text="{path: 'view>decided_at', formatter: '.formatDateTime'}" wrapping="false"/>
@@ -150,12 +148,13 @@
                                     <Link text="View error" visible="{view>hasError}"
                                           press=".onViewPostingError"/>
                                 </VBox>
-                                <Text text="{view>requester}" wrapping="false"/>
+                                <Text text="{view>requester}" tooltip="{view>requester}" wrapping="false"/>
                             </cells>
                         </ColumnListItem>
                     </items>
                 </Table>
             </VBox>
+            </ScrollContainer>
         </f:content>
     </f:DynamicPage>
 

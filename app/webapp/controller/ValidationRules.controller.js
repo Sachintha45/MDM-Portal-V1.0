@@ -113,6 +113,7 @@ sap.ui.define([
 
         _applyFilters: function () {
             var sSearch  = this.byId("filterSearch").getValue();
+            var sUsage   = this.byId("filterUsage").getSelectedKey();
             var sTrigger = this.byId("filterTrigger").getSelectedKey();
 
             var aFilters = [];
@@ -133,6 +134,10 @@ sap.ui.define([
             var oBinding = this.byId("ruleTable").getBinding("items");
             if (!oBinding) { return; }
 
+            // "Used By Fields" is filtered client-side after data is received,
+            // since the link count comes from a separate FieldMasters query.
+            this._pendingUsageFilter = sUsage;
+
             oBinding.filter(
                 aFilters.length ? [new Filter({ filters: aFilters, and: true })] : []
             );
@@ -141,7 +146,9 @@ sap.ui.define([
 
         onClearFilters: function () {
             this.byId("filterSearch").setValue("");
+            this.byId("filterUsage").setSelectedKey("");
             this.byId("filterTrigger").setSelectedKey("");
+            this._pendingUsageFilter = "";
             var oBinding = this.byId("ruleTable").getBinding("items");
             if (oBinding) {
                 oBinding.filter([]);
@@ -150,52 +157,40 @@ sap.ui.define([
         },
 
         // ── Multi-select toolbar ─────────────────────────────────────
+        // Clear the checked rows after a bulk action and hide the bulk buttons.
+        _clearSelection: function (bRefresh) {
+            var oTable = this.byId("ruleTable");
+            oTable.removeSelections(true);
+            this.onSelectionChange();
+            if (bRefresh) {
+                var oBinding = oTable.getBinding("items");
+                if (oBinding) { oBinding.refresh(); }
+            }
+        },
+
         onSelectionChange: function () {
             var bHas = this.byId("ruleTable").getSelectedItems().length > 0;
             this.byId("bulkDeleteBtn").setVisible(bHas);
             this.byId("bulkSeparator").setVisible(bHas);
         },
 
-        // Rules that are still linked to fields cannot be deleted. The server
-        // enforces this too; checking here lets us explain it up front and
-        // still delete the rules that are free.
-        _splitByLinks: function (aCtx) {
-            var oCounts = this.getView().getModel("ui").getProperty("/linkedCounts") || {};
-            var aFree = [], aBlocked = [];
-            aCtx.forEach(function (oCtx) {
-                var sId = oCtx.getProperty("validation_id");
-                if (oCounts[sId]) { aBlocked.push(sId + " (" + oCounts[sId] + " field" + (oCounts[sId] > 1 ? "s" : "") + ")"); }
-                else { aFree.push(oCtx); }
-            });
-            return { free: aFree, blocked: aBlocked };
-        },
-
-        _deleteRules: function (aCtx) {
-            var o = this._splitByLinks(aCtx);
-            var sBlocked = o.blocked.length
-                ? "Cannot delete (still linked to fields): " + o.blocked.join(", ") + ". Remove the rule from those fields first."
-                : "";
-            if (!o.free.length) { MessageBox.error(sBlocked); return; }
-            MessageBox.confirm(
-                "Delete " + o.free.length + " validation rule(s)? This cannot be undone." +
-                (sBlocked ? "\n\n" + sBlocked : ""), {
-                title  : "Confirm Deletion",
-                onClose: function (sAction) {
-                    if (sAction !== MessageBox.Action.OK) { return; }
-                    Promise.all(o.free.map(function (oCtx) { return oCtx.delete("$auto"); }))
-                        .then(function () {
-                            MessageToast.show("Deleted successfully.");
-                            this._loadLinkedCounts();
-                        }.bind(this))
-                        .catch(function (e) { MessageBox.error("Delete failed: " + e.message); });
-                }.bind(this)
-            });
-        },
-
         onBulkDelete: function () {
+            var that = this;
             var aSelected = this.byId("ruleTable").getSelectedItems();
             if (!aSelected.length) { return; }
-            this._deleteRules(aSelected.map(function (i) { return i.getBindingContext(); }));
+            MessageBox.confirm("Delete " + aSelected.length + " validation rule(s)? This cannot be undone.", {
+                title  : "Confirm Deletion",
+                onClose: function (sAction) {
+                    if (sAction === MessageBox.Action.OK) {
+                        var aPromises = aSelected.map(function (oItem) {
+                            return oItem.getBindingContext().delete("$auto");
+                        });
+                        Promise.all(aPromises)
+                            .then(function () { MessageToast.show("Deleted successfully."); that._clearSelection(); })
+                            .catch(function (e) { MessageBox.error("Delete failed: " + e.message); });
+                    }
+                }.bind(this)
+            });
         },
 
         // ── Row context menu ─────────────────────────────────────────
@@ -224,7 +219,16 @@ sap.ui.define([
         },
 
         _onMenuDelete: function () {
-            this._deleteRules([this._oMenuCtx]);
+            var oCtx = this._oMenuCtx;
+            MessageBox.confirm("Delete this validation rule?", {
+                onClose: function (sAction) {
+                    if (sAction === MessageBox.Action.OK) {
+                        oCtx.delete("$auto")
+                            .then(function () { MessageToast.show("Deleted."); })
+                            .catch(function (e) { MessageBox.error("Failed: " + e.message); });
+                    }
+                }
+            });
         },
 
         // ── Navigation ───────────────────────────────────────────────
@@ -251,7 +255,6 @@ sap.ui.define([
             var oBinding = this.byId("ruleTable").getBinding("items");
             if (!oBinding) { return; }
             oBinding.requestContexts(0, oBinding.getLength()).then(function (aCtx) {
-                var oCounts = this.getView().getModel("ui").getProperty("/linkedCounts") || {};
                 var aData = aCtx.map(function (oCtx) {
                     return {
                         "Validation Name": oCtx.getProperty("validation_id"),
@@ -260,11 +263,10 @@ sap.ui.define([
                         "Input Param 1": oCtx.getProperty("input_param_1") || "",
                         "Input Param 2": oCtx.getProperty("input_param_2") || "",
                         "Input Param 3": oCtx.getProperty("input_param_3") || "",
-                        "Trigger"      : this.formatTrigger(oCtx.getProperty("trigger_on")),
-                        "Error Message": oCtx.getProperty("error_message"),
-                        "Linked Fields": oCounts[oCtx.getProperty("validation_id")] || 0
+                        "Trigger"      : oCtx.getProperty("trigger_on"),
+                        "Error Message": oCtx.getProperty("error_message")
                     };
-                }.bind(this));
+                });
                 this._downloadCSV(aData, "validation-rules.csv");
             }.bind(this)).catch(function (e) {
                 MessageBox.error("Export failed: " + e.message);
@@ -280,7 +282,7 @@ sap.ui.define([
                         return '"' + String(r[k] !== undefined ? r[k] : "").replace(/"/g, '""') + '"';
                     }).join(",");
                 }).join("\n");
-            var oBlob = new Blob(["\ufeff" + sCSV], { type: "text/csv;charset=utf-8;" });
+            var oBlob = new Blob([sCSV], { type: "text/csv;charset=utf-8;" });
             var sUrl  = URL.createObjectURL(oBlob);
             var oLink = document.createElement("a");
             oLink.href = sUrl; oLink.download = sFilename; oLink.click();

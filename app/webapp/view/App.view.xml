@@ -14,10 +14,9 @@
         <tnt:header>
             <f:ShellBar
                 id="shellBar"
-                title="MDM Portal"
-                secondTitle="{ui>/shellBreadcrumb}"
+                title="INTELLECT MDM"
                 homeIcon="sap-icon://home"
-                homeIconTooltip="MDM Portal Home"
+                homeIconTooltip="INTELLECT MDM Home"
                 homeIconPressed=".onHomePress"
                 showMenuButton="true"
                 menuButtonPressed=".onSideNavToggle"
@@ -27,7 +26,7 @@
                 notificationsNumber="{ui>/pendingApprovals}"
                 notificationsPressed=".onNotificationsPress"
                 showProductSwitcher="false"
-                customStyleClasses="mdmShellBar">
+>
  
                 <!-- profile: the only child aggregation we need -->
                 <f:profile>
@@ -89,13 +88,6 @@
  
                     </tnt:NavigationList>
                 </tnt:item>
- 
-                <tnt:fixedItem>
-                    <tnt:NavigationList>
-                        <tnt:NavigationListItem text="Help"     icon="sap-icon://sys-help"        key="help"/>
-                        <tnt:NavigationListItem text="Settings" icon="sap-icon://action-settings" key="appSettings"/>
-                    </tnt:NavigationList>
-                </tnt:fixedItem>
  
             </tnt:SideNavigation>
         </tnt:sideContent>

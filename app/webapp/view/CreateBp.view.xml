@@ -20,25 +20,18 @@
         </customHeader>
 
         <content>
-            <!-- ── Subtitle + object key strip ────────────────────────── -->
-            <VBox class="sapUiMediumMarginBeginEnd sapUiSmallMarginTop">
-                <Text text="{rt>/subtitle}" class="mdmSubtitleText"/>
-                <!-- <HBox wrap="Wrap" class="sapUiSmallMarginTop" alignItems="Center">
-                    <ObjectAttribute title="BP Category"      text="{rt>/catDisp}"  class="sapUiMediumMarginEnd"/>
-                    <ObjectAttribute title="BP Roles"         text="{rt>/roleDisp}" class="sapUiMediumMarginEnd"/>
-                    <ObjectAttribute title="BP Account Group" text="{rt>/bpAgDisp}" class="sapUiMediumMarginEnd"/>
-                    <ObjectAttribute title="Number Range"     text="{rt>/nrDisp}"   class="sapUiMediumMarginEnd"/>
-                    <ObjectAttribute title="Prerequisites"    text="{rt>/preqDisp}" class="sapUiMediumMarginEnd"/>
-                    <ObjectStatus    title="Status" text="{rt>/status}" state="Information"/>
-                </HBox> -->
-            </VBox>
-
-            <HBox class="sapUiTinyMarginTop sapUiMediumMarginBeginEnd">
-                <core:HTML content="&lt;hr style='border:none;border-top:1px solid var(--sapGroup_TitleBorderColor);margin:0 0 0.5rem 0;width:100%'/&gt;"/>
-            </HBox>
-
             <!-- ── STEP 0: Create (pick category) OR Extend (pick BP) ─── -->
-            <VBox class="sapUiMediumMarginBeginEnd sapUiSmallMarginTop">
+            <Panel id="pnlBpHeader" expandable="true" expanded="true" width="auto"
+                   class="sapUiMediumMarginBeginEnd sapUiSmallMarginTop mdmHeaderPanel">
+                <headerToolbar>
+                    <OverflowToolbar style="Clear">
+                        <Title text="Business Partner Details" level="H5"/>
+                        <Text class="mdmHeaderSummary" maxLines="1" wrapping="false"
+                              text="{parts: ['rt>/catDisp', 'rt>/roleDisp', 'rt>/bpAgDisp'], formatter: '.fmtHeaderSummary'}"/>
+                    </OverflowToolbar>
+                </headerToolbar>
+                <content>
+                <VBox>
                 <HBox alignItems="End">
                     <VBox width="42%">
                         <Label text="BP Category" required="true" labelFor="selCategory"/>
@@ -143,6 +136,8 @@
                                         : 'BP Number required. This account group uses external numbering — enter the BP number above to continue.' }"/>
                 </VBox>
             </VBox>
+    </content>
+            </Panel>
 
             <!-- ── Empty state (no roles yet) ─────────────────────────── -->
             <IllustratedMessage id="cbpEmpty" visible="{= !${rt>/hasRoles} }"

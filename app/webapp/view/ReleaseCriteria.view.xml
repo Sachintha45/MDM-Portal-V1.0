@@ -80,7 +80,7 @@
         </f:header>
 
         <f:content>
-            <VBox>
+            <ScrollContainer height="100%" width="100%" vertical="true" horizontal="true" class="mdmListScroll">
                 <Table id="criteriaTable"
                     items="{
                         path: '/StrategyCharacteristics',
@@ -138,7 +138,7 @@
                         </ColumnListItem>
                     </items>
                 </Table>
-            </VBox>
+            </ScrollContainer>
         </f:content>
     </f:DynamicPage>
 </mvc:View>

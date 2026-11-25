@@ -42,15 +42,15 @@ sap.ui.define([
             oRouter.getRoute("fieldMaster").attachPatternMatched(this._onRouteMatched, this);
 
             this._oColumnSettings = ColumnSettings(this, {
-                storageKey: "mdmportal.fieldMaster.columnVisibility",
+                storageKey: "mdmportal.fieldMaster.columnVisibility.v2",
                 columns: [
                     { id: "colDescription", label: "Description" },
                     { id: "colDataType",    label: "Data Type" },
                     { id: "colLength",      label: "Length" },
                     { id: "colValueTable",  label: "Value Table" },
                     { id: "colDisplayType", label: "Display Type" },
-                    { id: "colValidation",  label: "Validation" },
-                    { id: "colGrid",        label: "Grid" },
+                    { id: "colValidation",  label: "Validation", defaultHidden: true },
+                    { id: "colGrid",        label: "Grid", defaultHidden: true },
                     { id: "colStatus",      label: "Status" }
                 ]
             });
@@ -294,11 +294,20 @@ _applyFilters: function () {
         },
 
         // ── Selection ────────────────────────────────────────────────────
+        // Clear the checked rows after a bulk action and hide the bulk buttons.
+        _clearSelection: function (bRefresh) {
+            var oTable = this.byId("fieldTable");
+            oTable.removeSelections(true);
+            this.onSelectionChange();
+            if (bRefresh) {
+                var oBinding = oTable.getBinding("items");
+                if (oBinding) { oBinding.refresh(); }
+            }
+        },
+
         onSelectionChange: function () {
             var bHasSelect = this.byId("fieldTable").getSelectedItems().length > 0;
             this.byId("bulkDeleteBtn").setVisible(bHasSelect);
-            // Activate only makes sense when at least one selected field is
-            // still inactive.
             this.byId("bulkActivateBtn").setVisible(this._getInactive(this.byId("fieldTable").getSelectedItems()).length > 0);
             this.byId("bulkSeparator").setVisible(bHasSelect);
         },
@@ -325,12 +334,13 @@ _applyFilters: function () {
         },
 
         _deleteFields: function (aItems) {
+            var that = this;
             var oModel = this.getOwnerComponent().getModel();
             var aPromises = aItems.map(function (oItem) {
                 return oItem.getBindingContext().delete("$auto");
             });
             Promise.all(aPromises)
-                .then(function () { MessageToast.show("Deleted successfully."); })
+                .then(function () { MessageToast.show("Deleted successfully."); that._clearSelection(); })
                 .catch(function (oErr) { MessageBox.error("Delete failed: " + oErr.message); });
         },
 
@@ -351,6 +361,7 @@ _applyFilters: function () {
         },
 
         _activateFields: function (aItems) {
+            var that = this;
             // OData v4: patch each context individually — no callFunction
             var oModel = this.getOwnerComponent().getModel();
             var aPromises = aItems.map(function (oItem) {
@@ -361,7 +372,7 @@ _applyFilters: function () {
                 .then(function () {
                     return oModel.submitBatch("$auto");
                 })
-                .then(function () { MessageToast.show("Activated successfully."); })
+                .then(function () { MessageToast.show("Activated successfully."); that._clearSelection(true); })
                 .catch(function (oErr) { MessageBox.error("Activation failed: " + oErr.message); });
         },
 

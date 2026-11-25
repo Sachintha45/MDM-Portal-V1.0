@@ -160,16 +160,44 @@ sap.ui.define([
         },
 
         // ── Multi-select toolbar ─────────────────────────────────────
+        // Clear the checked rows after a bulk action and hide the bulk buttons.
+        _clearSelection: function (bRefresh) {
+            var oTable = this.byId("valueTable");
+            oTable.removeSelections(true);
+            this.onSelectionChange();
+            if (bRefresh) {
+                var oBinding = oTable.getBinding("items");
+                if (oBinding) { oBinding.refresh(); }
+            }
+        },
+
+        // Items that are still inactive (already-active rows are ignored by Activate).
+        _getInactive: function (aItems) {
+            return aItems.filter(function (oItem) {
+                var oCtx = oItem.getBindingContext();
+                if (!oCtx) { return false; }
+                var v = oCtx.getProperty("status");
+                var bActive = typeof v === "string"
+                    ? ["active", "true", "yes", "1", "x"].indexOf(v.trim().toLowerCase()) > -1
+                    : (v === true || v === 1);
+                return !bActive;
+            });
+        },
+
         onSelectionChange: function () {
             var bHas = this.byId("valueTable").getSelectedItems().length > 0;
-            this.byId("bulkActivateBtn").setVisible(bHas);
+            this.byId("bulkActivateBtn").setVisible(this._getInactive(this.byId("valueTable").getSelectedItems()).length > 0);
             this.byId("bulkDeleteBtn").setVisible(bHas);
             this.byId("bulkSeparator").setVisible(bHas);
         },
 
         onBulkActivate: function () {
+            var that = this;
             var aSelected = this.byId("valueTable").getSelectedItems();
             if (!aSelected.length) { return; }
+            // leave out rows that are already active
+            aSelected = this._getInactive(aSelected);
+            if (!aSelected.length) { MessageToast.show("The selected value table(s) are already active."); return; }
             MessageBox.confirm("Activate " + aSelected.length + " value table(s)?", {
                 title  : "Confirm Activation",
                 onClose: function (sAction) {
@@ -181,7 +209,7 @@ sap.ui.define([
                             .then(function () {
                                 return this.getOwnerComponent().getModel().submitBatch("$auto");
                             }.bind(this))
-                            .then(function () { MessageToast.show("Activated successfully."); })
+                            .then(function () { MessageToast.show("Activated successfully."); that._clearSelection(true); })
                             .catch(function (e) { MessageBox.error("Activation failed: " + e.message); });
                     }
                 }.bind(this)
@@ -189,6 +217,7 @@ sap.ui.define([
         },
 
         onBulkDelete: function () {
+            var that = this;
             var aSelected = this.byId("valueTable").getSelectedItems();
             if (!aSelected.length) { return; }
             MessageBox.confirm("Delete " + aSelected.length + " value table(s)? This cannot be undone.", {
@@ -199,7 +228,7 @@ sap.ui.define([
                             return oItem.getBindingContext().delete("$auto");
                         });
                         Promise.all(aPromises)
-                            .then(function () { MessageToast.show("Deleted successfully."); })
+                            .then(function () { MessageToast.show("Deleted successfully."); that._clearSelection(); })
                             .catch(function (e) { MessageBox.error("Delete failed: " + e.message); });
                     }
                 }.bind(this)

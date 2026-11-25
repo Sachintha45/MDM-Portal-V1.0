@@ -45,6 +45,8 @@ sap.ui.define(
       onInit: function () {
         // Role assignments added on the Usage tab, written when the field is saved
         this.getView().setModel(new JSONModel({ items: [], saved: [], rows: [] }), "pend");
+        // Grid columns added to a field that is not saved yet - written with the field
+        this.getView().setModel(new JSONModel({ items: [] }), "pendCols");
         this._oViewModel = new JSONModel({
           busy: false,
           isNew: false,
@@ -112,7 +114,7 @@ sap.ui.define(
 
         oModel
           .bindList("/ValueTables", null, [new Sorter("value_table_id")])
-          .requestContexts(0, 200)
+          .requestContexts(0, 5000)
           .then(function (aCtx) {
             var aItems = [{ key: "", text: "— None —" }];
             aCtx.forEach(function (c) {
@@ -178,11 +180,22 @@ sap.ui.define(
         // Reset dirty flag on every navigation
         this._oViewModel.setProperty("/isDirty", false);
         this.getView().getModel("pend").setProperty("/items", []);
+        this.getView().getModel("pendCols").setProperty("/items", []);
+        this._oViewModel.setProperty("/gridColumnCount", "");
         this._sVtShown = undefined;   // force the Value Table Details box to refresh
         this.getView().getModel("pend").setProperty("/saved", []);
         this._refreshUsageRows();
 
         if (sFieldId === "NEW") {
+          // A new field starts on the General tab with an empty change log -
+          // never on the tab / log rows of the field that was open before.
+          this._oViewModel.setProperty("/selectedTab", "general");
+          var oTabs = this.byId("detailTabs");
+          if (oTabs) { oTabs.setSelectedKey("general"); }
+          this._oViewModel.setProperty("/clCreatedAt", "—");
+          this._oViewModel.setProperty("/clCreatedBy", "—");
+          this._oViewModel.setProperty("/clModifiedAt", "—");
+          this._oViewModel.setProperty("/clModifiedBy", "—");
           this._createNewField();
         } else {
           this._bindField(sFieldId);
@@ -219,6 +232,16 @@ sap.ui.define(
             $$updateGroupId: "fieldMasterUpdate", // holds changes until submitBatch
           },
           events: {
+            change: function () {
+              // Runs on every (re)bind - also when the data is already cached and
+              // dataReceived does not fire - so the Value Table select and the
+              // details box always match the field, however late the data arrives.
+              var oCtx = this.getView().getBindingContext();
+              if (!oCtx) { return; }
+              oCtx.requestObject().then(function (oData) {
+                if (oData) { this._showFieldValueTable(oData); }
+              }.bind(this));
+            }.bind(this),
             dataReceived: function () {
               this._oViewModel.setProperty("/busy", false);
               var oCtx = this.getView().getBindingContext();
@@ -514,13 +537,69 @@ sap.ui.define(
         this.onFieldChange();
       },
 
-      // Same rule inside the Add/Edit Grid Column dialog.
-      _onGridDataTypeChange: function () {
+      // Add/Edit Grid Column dialog: data type decides length / decimals,
+      // display type decides whether the value table + source fields apply.
+      _onGridDataTypeChange: function (bFromUser) {
+        this._syncGridDialog(bFromUser);
+      },
+
+      // bFromUser: the user just changed data type / display type, so defaults
+      // may be applied. When the dialog is only being filled (false) the
+      // stored values are kept and only the visibility is updated.
+      _syncGridDialog: function (bFromUser) {
         var oD = this._oGridColumnDialog;
         if (!oD) { return; }
-        var bDec = oD._oDataType.getSelectedKey() === "DECIMAL";
-        oD._oDecimalsInput.setEnabled(bDec);
+        var sType = oD._oDataType.getSelectedKey();
+        var sDsp  = oD._oDisplayType.getSelectedKey();
+
+        // --- display type defaults that follow the data type ---------------
+        if (bFromUser) {
+          if (sType === "DATE" && (!sDsp || sDsp === "INPUT" || sDsp === "CHECKBOX")) { sDsp = "DATEPICKER"; }
+          else if (sType === "BOOLEAN") { sDsp = "CHECKBOX"; }
+          else if (sType && sType !== "DATE" && (sDsp === "DATEPICKER" || (sType !== "BOOLEAN" && sDsp === "CHECKBOX"))) { sDsp = "INPUT"; }
+          else if (sType && !sDsp) { sDsp = "INPUT"; }
+          oD._oDisplayType.setSelectedKey(sDsp);
+        }
+
+        // --- length / decimals ------------------------------------------------
+        var bLen = sType === "STRING" || sType === "INTEGER" || sType === "DECIMAL" || sType === "DATE";
+        var bDec = sType === "DECIMAL";
+        oD._oLengthLabel.setVisible(bLen);
+        oD._oLengthInput.setVisible(bLen);
+        oD._oLengthInput.setEditable(sType !== "DATE");     // a date is always 8
+        oD._oDecimalsLabel.setVisible(bDec);
+        oD._oDecimalsInput.setVisible(bDec);
+        if (sType === "DATE") { oD._oLengthInput.setValue("8"); }
+        else if (bFromUser && !bLen) { oD._oLengthInput.setValue(""); }
+        else if (bFromUser && oD._sPrevGridType === "DATE") { oD._oLengthInput.setValue(""); }
         if (!bDec) { oD._oDecimalsInput.setValue(""); }
+        oD._sPrevGridType = sType;
+
+        // --- value table + source fields only for lists ------------------------
+        var bList = sDsp === "SEARCH_HELP" || sDsp === "DROPDOWN";
+        [oD._oValueTableLabel, oD._oValueTable, oD._oSourceTableLabel, oD._oSourceTable,
+         oD._oSourceFieldLabel, oD._oSourceField].forEach(function (o) { o.setVisible(bList); });
+        oD._oValueTableLabel.setRequired(bList);
+        if (!bList) {
+          oD._oValueTable.setSelectedKey("");
+          oD._oSourceTable.setValue("");
+          oD._oSourceField.setValue("");
+        }
+
+        // --- validation rules that fit the data type ---------------------------
+        var oB = oD._oValidation.getBinding("items");
+        if (oB) {
+          oB.filter(sType ? [new Filter({
+            path: "fn",
+            test: function (fn) { return !fn || this._ruleFits(fn, sType); }.bind(this)
+          })] : []);
+        }
+        var sRule = oD._oValidation.getSelectedKey();
+        if (sRule) {
+          var oRule = (this.getView().getModel("lookups").getProperty("/validationRulesAll") || [])
+            .filter(function (r) { return r.key === sRule; })[0];
+          if (oRule && !this._ruleFits(oRule.fn, sType)) { oD._oValidation.setSelectedKey(""); }
+        }
       },
 
       onGridSwitchChange: function (oEvent) {
@@ -576,6 +655,27 @@ sap.ui.define(
         this._oViewModel.setProperty("/isDirty", true); // mark dirty
         this._sVtShown = sKey || null;
         this._updateValueTablePreview(sKey ? { value_table_id: sKey } : null);
+      },
+
+      // Make sure the Value Table select holds the field's table (adding it to
+      // the list if the lookup did not contain it) and refresh the details box.
+      _showFieldValueTable: function (oData) {
+        var sId = oData.value_table_value_table_id ||
+                  (oData.value_table && oData.value_table.value_table_id) || "";
+        if (sId) {
+          var oLookups = this.getView().getModel("lookups");
+          var aItems = oLookups.getProperty("/valueTables") || [];
+          if (!aItems.some(function (i) { return i.key === sId; })) {
+            var sDesc = (oData.value_table && oData.value_table.description) || "";
+            oLookups.setProperty("/valueTables", aItems.concat([{ key: sId, text: sId + (sDesc ? " \u2014 " + sDesc : "") }]));
+          }
+          var oSel = this.byId("selValueTable");
+          if (oSel && oSel.getSelectedKey() !== sId && !this._oViewModel.getProperty("/isDirty")) {
+            oSel.setSelectedKey(sId);
+          }
+        }
+        this._sVtShown = sId || null;
+        this._updateValueTablePreview(sId ? { value_table_id: sId } : null);
       },
 
       _updateValueTablePreview: function (oVT) {
@@ -927,7 +1027,9 @@ sap.ui.define(
               .then(
                 function (bWasCreated) {
                   // field row exists now -> write staged role assignments
-                  return this._savePendingAssignments(sFieldId).then(function () { return bWasCreated; });
+                  return this._savePendingAssignments(sFieldId)
+                    .then(function () { return this._savePendingGridColumns(sFieldId); }.bind(this))
+                    .then(function () { return bWasCreated; });
                 }.bind(this)
               )
               .then(
@@ -1152,8 +1254,9 @@ sap.ui.define(
       _loadChangeLog: function () {
         var oCtx = this.getView().getBindingContext();
         if (!oCtx) { return; }
-        var sFieldId = oCtx.getProperty("field_id");
-        if (!sFieldId) { return; }
+        // A new, unsaved field has no id yet: filter on a key nothing matches, so
+        // the log is empty instead of still showing the previous field's rows.
+        var sFieldId = oCtx.getProperty("field_id") || "__NEW__";
 
         // Populate managed-field strip
         var oVm = this._oViewModel;
@@ -1225,6 +1328,11 @@ sap.ui.define(
       // up front the same way Users/Scope are on Release Code.
 
       _loadGridColumnCount: function () {
+        if (this._oViewModel.getProperty("/isNew")) {
+          this._oViewModel.setProperty("/gridColumnCount",
+            String(this.getView().getModel("pendCols").getProperty("/items").length));
+          return;
+        }
         var oTable = this.byId("gridColumnsTable");
         if (!oTable) { return; }
         var oBinding = oTable.getBinding("items");
@@ -1242,6 +1350,9 @@ sap.ui.define(
       },
 
       _getLoadedGridColumnRows: function () {
+        if (this._oViewModel.getProperty("/isNew")) {
+          return this.getView().getModel("pendCols").getProperty("/items").slice();
+        }
         var oTable = this.byId("gridColumnsTable");
         if (!oTable) { return []; }
         var oBinding = oTable.getBinding("items");
@@ -1268,11 +1379,73 @@ sap.ui.define(
       },
 
       onAddGridColumn: function () {
-        if (this._oViewModel.getProperty("/isNew")) {
-          MessageToast.show("Save this field first before adding grid columns.");
-          return;
-        }
         this._openGridColumnDialog(null);
+      },
+
+      // ── Grid columns of a field that is not saved yet ──────────────
+      // Kept in the "pendCols" model and written together with the field.
+      onPendingColumnRowPress: function (oEvent) {
+        this._openGridColumnDialog(oEvent.getSource().getBindingContext("pendCols"));
+      },
+
+      _stagePendingColumn: function (oPayload, sEditingName) {
+        var oM = this.getView().getModel("pendCols");
+        var aItems = oM.getProperty("/items").slice();
+        var oRow = Object.assign({}, oPayload, {
+          value_table_code: oPayload.value_table_value_table_id || "",
+          validation_code: oPayload.validation_validation_id || ""
+        });
+        if (sEditingName) {
+          aItems = aItems.map(function (o) { return o.column_name === sEditingName ? oRow : o; });
+        } else {
+          aItems.push(oRow);
+        }
+        oM.setProperty("/items", aItems);
+        this._oViewModel.setProperty("/isDirty", true);
+        this._loadGridColumnCount();
+      },
+
+      onDeletePendingColumn: function (oEvent) {
+        var sName = oEvent.getSource().getBindingContext("pendCols").getProperty("column_name");
+        var oM = this.getView().getModel("pendCols");
+        oM.setProperty("/items", oM.getProperty("/items").filter(function (o) {
+          return o.column_name !== sName;
+        }));
+        this._loadGridColumnCount();
+      },
+
+      // Writes the staged grid columns once the field row exists.
+      _savePendingGridColumns: function (sFieldId) {
+        var oM = this.getView().getModel("pendCols");
+        var aItems = oM.getProperty("/items") || [];
+        var oSw = this.byId("swGrid");
+        if (!aItems.length || (oSw && !oSw.getState())) { return Promise.resolve(); }
+        var oModel = this.getView().getModel();
+        var oLB = oModel.bindList("/GridColumns", null, [], [], { $$updateGroupId: "gridColsCreate" });
+        aItems.forEach(function (o) {
+          oLB.create({
+            field_field_id: sFieldId,
+            column_name: o.column_name,
+            description: o.description,
+            data_type: o.data_type,
+            length: o.length,
+            decimals: o.decimals,
+            display_type: o.display_type,
+            value_table_value_table_id: o.value_table_value_table_id,
+            validation_validation_id: o.validation_validation_id,
+            source_table: o.source_table,
+            source_field: o.source_field,
+            active: o.active
+          });
+        });
+        return oModel.submitBatch("gridColsCreate").then(function () {
+          oM.setProperty("/items", []);
+          MessageToast.show(aItems.length + " grid column(s) saved.");
+        }).catch(function (e) {
+          try { oModel.resetChanges("gridColsCreate"); } catch (x) { /* nothing pending */ }
+          MessageBox.error("The field was saved, but the grid columns could not be saved: " +
+            ((e && e.message) || "Unknown error") + "\nAdd them again on the Grid Columns tab.");
+        });
       },
 
       onGridColumnRowPress: function (oEvent) {
@@ -1298,9 +1471,11 @@ sap.ui.define(
           var oDataType    = new Select({
             width: "100%", forceSelection: false,
             items: { path: "lookups>/dataTypes", template: new Item({ key: "{lookups>key}", text: "{lookups>text}" }) },
-            change: function () { this._onGridDataTypeChange(); }.bind(this)
+            change: function () { this._onGridDataTypeChange(true); }.bind(this)
           });
+          var oLengthLabel   = new Label({ text: "Length" });
           var oLengthInput   = new Input({ type: "Number", placeholder: "Max length" });
+          var oDecimalsLabel = new Label({ text: "Decimals" });
           var oDecimalsInput = new Input({ type: "Number", placeholder: "Decimal places" });
           var oValueTableLabel = new Label({ text: "Value Table" });
           var oValueTable    = new Select({
@@ -1310,16 +1485,15 @@ sap.ui.define(
           var oDisplayType  = new Select({
             width: "100%", forceSelection: false,
             items: { path: "lookups>/displayTypes", template: new Item({ key: "{lookups>key}", text: "{lookups>text}" }) },
-            change: function () {
-              var sType = oDisplayType.getSelectedKey();
-              oValueTableLabel.setRequired(sType === "SEARCH_HELP");
-            }
+            change: function () { this._syncGridDialog(true); }.bind(this)
           });
           var oValidation   = new Select({
             width: "100%", forceSelection: false,
             items: { path: "lookups>/validationRulesAll", template: new Item({ key: "{lookups>key}", text: "{lookups>text}" }) }
           });
+          var oSourceTableLabel = new Label({ text: "Source Table" });
           var oSourceTable = new Input({ placeholder: "Source SAP table (optional)" });
+          var oSourceFieldLabel = new Label({ text: "Source Field" });
           var oSourceField = new Input({ placeholder: "Source SAP field (optional)" });
           var oActiveSwitch = new Switch({ state: true });
 
@@ -1333,13 +1507,13 @@ sap.ui.define(
                 new Label({ text: "Column Name", required: true }), oNameInput,
                 new Label({ text: "Description", required: true }), oDescInput,
                 new Label({ text: "Data Type", required: true }), oDataType,
-                new Label({ text: "Length" }), oLengthInput,
-                new Label({ text: "Decimals" }), oDecimalsInput,
+                oLengthLabel, oLengthInput,
+                oDecimalsLabel, oDecimalsInput,
                 new Label({ text: "Display Type", required: true }), oDisplayType,
                 oValueTableLabel, oValueTable,
                 new Label({ text: "Validation Rule" }), oValidation,
-                new Label({ text: "Source Table" }), oSourceTable,
-                new Label({ text: "Source Field" }), oSourceField,
+                oSourceTableLabel, oSourceTable,
+                oSourceFieldLabel, oSourceField,
                 new Label({ text: "Active" }), oActiveSwitch
               ]
             }),
@@ -1382,8 +1556,47 @@ sap.ui.define(
                     return;
                   }
                 }
-                if (sDisplay === "SEARCH_HELP" && !oValueTable.getSelectedKey()) {
+                if ((sDisplay === "SEARCH_HELP" || sDisplay === "DROPDOWN") && !oValueTable.getSelectedKey()) {
                   MessageBox.error("Display Type \"" + sDisplay + "\" requires a Value Table.");
+                  return;
+                }
+                // Length / decimals must make sense for the data type
+                var sLenTxt = oLengthInput.getValue().trim();
+                var sDecTxt = oDecimalsInput.getValue().trim();
+                var iLen = sLenTxt === "" ? null : Number(sLenTxt);
+                var iDec = sDecTxt === "" ? null : Number(sDecTxt);
+                if (iLen !== null && (!Number.isInteger(iLen) || iLen < 1)) {
+                  MessageBox.error("Length must be a whole number greater than 0.");
+                  return;
+                }
+                if (sType === "DATE" && iLen !== 8) {
+                  MessageBox.error("A Date column has a fixed length of 8.");
+                  return;
+                }
+                if (sType === "DECIMAL") {
+                  if (iDec !== null && (!Number.isInteger(iDec) || iDec < 0)) {
+                    MessageBox.error("Decimals must be a whole number of 0 or more.");
+                    return;
+                  }
+                  if (iDec !== null && iLen === null) {
+                    MessageBox.error("Enter a Length when Decimals are set.");
+                    return;
+                  }
+                  if (iDec !== null && iLen !== null && iDec >= iLen) {
+                    MessageBox.error("Decimals must be smaller than the Length.");
+                    return;
+                  }
+                }
+                if (sType === "BOOLEAN" && sDisplay !== "CHECKBOX") {
+                  MessageBox.error("A Boolean column must use the Checkbox display type.");
+                  return;
+                }
+                if (sDisplay === "CHECKBOX" && sType !== "BOOLEAN") {
+                  MessageBox.error("The Checkbox display type can only be used with the Boolean data type.");
+                  return;
+                }
+                if (sDisplay === "DATEPICKER" && sType !== "DATE") {
+                  MessageBox.error("The Date Picker display type can only be used with the Date data type.");
                   return;
                 }
 
@@ -1401,8 +1614,8 @@ sap.ui.define(
                   column_name: sName,
                   description: sDesc,
                   data_type: sType,
-                  length: oLengthInput.getValue() ? parseInt(oLengthInput.getValue(), 10) : null,
-                  decimals: oDecimalsInput.getValue() ? parseInt(oDecimalsInput.getValue(), 10) : null,
+                  length: iLen,
+                  decimals: sType === "DECIMAL" ? iDec : null,
                   display_type: sDisplay,
                   value_table_value_table_id: oValueTable.getSelectedKey() || null,
                   validation_validation_id: oValidation.getSelectedKey() || null,
@@ -1411,7 +1624,9 @@ sap.ui.define(
                   active: oActiveSwitch.getState()
                 };
 
-                if (!oCtxBeingEdited) {
+                if (this._oViewModel.getProperty("/isNew")) {
+                  this._stagePendingColumn(oPayload, oCtxBeingEdited ? oCtxBeingEdited.getProperty("column_name") : null);
+                } else if (!oCtxBeingEdited) {
                   this._createGridColumn(oPayload);
                 } else {
                   this._updateGridColumn(oCtxBeingEdited, oPayload);
@@ -1433,6 +1648,11 @@ sap.ui.define(
           this._oGridColumnDialog._oDisplayType   = oDisplayType;
           this._oGridColumnDialog._oValueTable    = oValueTable;
           this._oGridColumnDialog._oValidation    = oValidation;
+          this._oGridColumnDialog._oLengthLabel   = oLengthLabel;
+          this._oGridColumnDialog._oDecimalsLabel = oDecimalsLabel;
+          this._oGridColumnDialog._oValueTableLabel = oValueTableLabel;
+          this._oGridColumnDialog._oSourceTableLabel = oSourceTableLabel;
+          this._oGridColumnDialog._oSourceFieldLabel = oSourceFieldLabel;
           this._oGridColumnDialog._oSourceTable   = oSourceTable;
           this._oGridColumnDialog._oSourceField   = oSourceField;
           this._oGridColumnDialog._oActiveSwitch  = oActiveSwitch;
@@ -1457,7 +1677,8 @@ sap.ui.define(
           oD._oSourceTable.setValue(oExistingCtx.getProperty("source_table") || "");
           oD._oSourceField.setValue(oExistingCtx.getProperty("source_field") || "");
           oD._oActiveSwitch.setState(this._isGridColActive(oExistingCtx.getProperty("active")));
-          this._onGridDataTypeChange();
+          oD._sPrevGridType = oExistingCtx.getProperty("data_type");
+          this._syncGridDialog(false);
           oD._oDecimalsInput.setValue(oExistingCtx.getProperty("decimals") || "");
         } else {
           oD.setTitle("Add Grid Column");
@@ -1474,7 +1695,8 @@ sap.ui.define(
           oD._oSourceTable.setValue("");
           oD._oSourceField.setValue("");
           oD._oActiveSwitch.setState(true);
-          this._onGridDataTypeChange();
+          oD._sPrevGridType = "";
+          this._syncGridDialog(false);
         }
 
         oD.open();

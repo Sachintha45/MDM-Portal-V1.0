@@ -31,7 +31,7 @@ sap.ui.define([
      *        (used for byId() and to attach the dialog as a dependent)
      * @param {object} oConfig
      * @param {string} oConfig.storageKey - unique localStorage key for this table
-     * @param {Array<{id:string, label:string}>} oConfig.columns - toggleable
+     * @param {Array<{id:string, label:string, defaultHidden?:boolean}>} oConfig.columns - toggleable
      *        columns, referenced by their view-local id. Any column not
      *        listed here (e.g. a structural key or actions column) is left
      *        alone and always stays visible.
@@ -43,7 +43,17 @@ sap.ui.define([
 
         function _byId(sId) { return oController.byId(sId); }
 
+        // columns flagged defaultHidden: true start hidden until the user
+        // switches them on in the column settings dialog
+        function _applyDefaults() {
+            oConfig.columns.forEach(function (oDef) {
+                var oColumn = _byId(oDef.id);
+                if (oColumn) { oColumn.setVisible(!oDef.defaultHidden); }
+            });
+        }
+
         function _restore() {
+            _applyDefaults();
             try {
                 var sSaved = window.localStorage.getItem(oConfig.storageKey);
                 if (!sSaved) { return; }
@@ -102,10 +112,7 @@ sap.ui.define([
         }
 
         function _onReset() {
-            oConfig.columns.forEach(function (oDef) {
-                var oColumn = _byId(oDef.id);
-                if (oColumn) { oColumn.setVisible(true); }
-            });
+            _applyDefaults();
             _syncModel();
             _save();
             MessageToast.show("Columns reset to default.");
