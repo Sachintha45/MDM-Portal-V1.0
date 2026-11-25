@@ -47,6 +47,39 @@ const LOG = cds.log('s4');
 // BPCategory.category_id (upper-cased) → BusinessPartnerCategory
 const BP_CATEGORY = { PERSON: '1', ORGANIZATION: '2', GROUP: '3' };
 
+// The portal keeps its own BP roles (BPRole.role_id) — they only group the
+// fields into segments and are NOT S/4HANA role ids. This maps each one to
+// the S/4 role it is posted as. A null target is not sent as a role at all
+// (its data still travels in the header). Roles that are already real S/4
+// ids (FLCU*/FLVN*/BUP*/000000) pass through unchanged; anything else is
+// skipped with a warning instead of failing the whole post.
+const S4_ROLE_BY_MDM_ROLE = {
+    GEN_DATA: null,      // general data → header/central data, no role needed
+    CUST_GEN: 'FLCU01',  // Customer (general + sales area)
+    CUST_SLS: 'FLCU01',  // Customer (sales area data)
+    CUST_FI : 'FLCU00'   // FI Customer (company code data)
+};
+
+function toS4RoleIds(aRoles, aWarnings) {
+    const aIds = [];
+    const aMdmRoleIds = Array.from(new Set((aRoles || []).map((oRole) => oRole.role_role_id).filter(Boolean)));
+    aMdmRoleIds.forEach((sRoleId) => {
+        if (Object.prototype.hasOwnProperty.call(S4_ROLE_BY_MDM_ROLE, sRoleId)) {
+            const sS4Role = S4_ROLE_BY_MDM_ROLE[sRoleId];
+            if (sS4Role && !aIds.includes(sS4Role)) { aIds.push(sS4Role); }
+            return;
+        }
+        if (/^(FLCU|FLVN|BUP|BBP)/.test(sRoleId) || sRoleId === '000000') {
+            if (!aIds.includes(sRoleId)) { aIds.push(sRoleId); }
+            return;
+        }
+        if (aWarnings) {
+            aWarnings.push(`BP role ${sRoleId} has no S/4HANA equivalent — not sent.`);
+        }
+    });
+    return aIds;
+}
+
 // BusinessPartnerCategory → BPCategory.category_id (the reverse, for reads)
 const BP_CATEGORY_ID = { 1: 'Person', 2: 'Organization', 3: 'Group' };
 
@@ -420,8 +453,8 @@ function buildBusinessPartnerPayload(oInput) {
         BusinessPartnerGrouping: cr.account_group_account_group_id
     }, oHeader);
 
-    // ── 3. Roles ─────────────────────────────────────────────────────────
-    const aRoleIds = Array.from(new Set(aRoles.map((oRole) => oRole.role_role_id).filter(Boolean)));
+    // ── 3. Roles (portal role ids translated to S/4HANA roles) ───────────
+    const aRoleIds = toS4RoleIds(aRoles, aWarnings);
     if (aRoleIds.length) {
         oPayload.to_BusinessPartnerRole = aRoleIds.map((sRoleId) => ({ BusinessPartnerRole: sRoleId }));
     }
