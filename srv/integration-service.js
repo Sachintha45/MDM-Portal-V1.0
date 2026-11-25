@@ -129,6 +129,10 @@ const FIELD_MAP = {
     NAME4            : ['name', 4],
     TITLE            : ['header', 'FormOfAddress'],
     TITLE_MEDI       : ['header', 'FormOfAddress'],
+    // Correspondence language is mandatory in this S/4 customizing (LANGU);
+    // the portal captures it as LANGU_CORR with 2-character ISO codes ("EN"),
+    // which is what the API expects (MaxLength 2).
+    LANGU_CORR       : ['header', 'CorrespondenceLanguage'],
     BU_SORT1         : ['header', 'SearchTerm1'],
     BU_SORT1_TXT     : ['header', 'SearchTerm1'],
     BU_SORT2         : ['header', 'SearchTerm2'],
@@ -264,6 +268,40 @@ const NAME_BY_CATEGORY = {
     3: ['GroupBusinessPartnerName1', 'GroupBusinessPartnerName2']
 };
 
+// S/4 rejects person attributes on an Organization/Group BP and organization
+// attributes on a Person BP ("Attributes for Person cannot be changed for BP
+// of category Organization"). The portal's role forms can capture either kind
+// of name for any category, so a name field is folded into the equivalent slot
+// of the CR's own category instead of failing the post.
+const NAME_SLOTS_BY_CATEGORY = {
+    1: ['LastName', 'FirstName', 'MiddleName'],
+    2: ['OrganizationBPName1', 'OrganizationBPName2', 'OrganizationBPName3', 'OrganizationBPName4'],
+    3: ['GroupBusinessPartnerName1', 'GroupBusinessPartnerName2']
+};
+
+// Prominence of a person-name part, used when folding it into the name slots
+// of an Organization/Group (first name is the primary name there).
+const PERSON_NAME_RANK = { FirstName: 0, LastName: 1, MiddleName: 2 };
+
+function remapNameProperty(sProp, sCategory) {
+    const aSlots = NAME_SLOTS_BY_CATEGORY[sCategory];
+    if (!aSlots) { return sProp; }
+    const sCat = String(sCategory);
+
+    // Person name captured for a non-person category → fill Name 1, Name 2 …
+    if (Object.prototype.hasOwnProperty.call(PERSON_NAME_RANK, sProp)) {
+        return sCat === '1' ? sProp : (aSlots[PERSON_NAME_RANK[sProp]] || null);
+    }
+
+    // Organization/Group name captured for a Person → Last/First name slots.
+    for (const sOtherCat of Object.keys(NAME_SLOTS_BY_CATEGORY)) {
+        const iIdx = NAME_SLOTS_BY_CATEGORY[sOtherCat].indexOf(sProp);
+        if (iIdx < 0 || sOtherCat === sCat) { continue; }
+        return aSlots[iIdx] || null;   // null = this category has no such slot
+    }
+    return sProp;
+}
+
 // The field in each role-instance segment that identifies the row — a row
 // without it cannot be created in S/4, so it is dropped with a warning.
 const SEGMENT_KEY = {
@@ -287,6 +325,13 @@ function resolveTarget(oMeta, oFieldValue, sCategory) {
     if (aTarget[0] === 'name') {
         const sProp = (NAME_BY_CATEGORY[sCategory] || [])[aTarget[1] - 1];
         return sProp ? ['header', sProp] : null;
+    }
+
+    if (aTarget[0] === 'header' && aTarget[1]) {
+        const sNameProp = remapNameProperty(aTarget[1], sCategory);
+        if (sNameProp !== aTarget[1]) {
+            return sNameProp ? ['header', sNameProp] : null;
+        }
     }
     return aTarget;
 }
